@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
+from db import get_db as shared_get_db
 from crm_core import ensure_crm_schema, log_activity_event, update_lead_status
 
 load_dotenv()
@@ -24,8 +25,7 @@ DB_PATH = "data/crm.db"
 
 def get_wa_settings():
     """Get WhatsApp settings from DB"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = shared_get_db()
     settings = {r['key']: r['value'] for r in conn.execute("SELECT * FROM settings").fetchall()}
     conn.close()
     return settings
@@ -186,8 +186,7 @@ def _log_wa_activity(lead_id: int, phone: str, message: str, status: str, msg_id
                 metadata={"phone": phone, "msg_id": msg_id},
             )
             if status == "sent":
-                conn = sqlite3.connect(DB_PATH)
-                conn.row_factory = sqlite3.Row
+                conn = shared_get_db()
                 lead = conn.execute("SELECT status FROM leads WHERE id = ?", (lead_id,)).fetchone()
                 conn.close()
                 if lead and str(lead["status"] or "") in {"new", "pending_review", "approved"}:
@@ -240,8 +239,7 @@ def verify_whatsapp_credentials() -> dict:
 
 def schedule_wa_followup(lead_id: int, phone: str, days: int = 3) -> dict:
     """Schedule a WhatsApp follow-up message"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = shared_get_db()
     lead = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
     conn.close()
 
@@ -260,7 +258,7 @@ Happy to share a free sample. Would you have 10 minutes this week?
 
 — Manikanta | Talktiv AI"""
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = shared_get_db()
     conn.execute("""
         INSERT INTO follow_ups (lead_id, message, channel, scheduled_at, status)
         VALUES (?, ?, 'whatsapp', ?, 'pending')

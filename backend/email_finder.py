@@ -18,6 +18,8 @@ import time
 import os
 from dotenv import load_dotenv
 
+from db import get_db as shared_get_db
+
 load_dotenv()
 
 DB_PATH = "data/crm.db"
@@ -329,9 +331,7 @@ def _rank_emails(emails: list, business_name: str) -> str:
 # ─────────────────────────────────────────────
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return shared_get_db()
 
 def run_batch_finder(limit: int = 50, skip_existing: bool = True):
     """Find emails for all leads in CRM that don't have one"""

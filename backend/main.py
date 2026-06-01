@@ -3,7 +3,8 @@ MARVIS CRM Backend
 FastAPI + SQLite — Lead Management + Auto Outreach
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+import asyncio
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -19,6 +20,9 @@ from datetime import datetime, timedelta
 import threading
 import time
 from dotenv import load_dotenv
+
+from db import get_db as shared_get_db
+from hud_bus import emit_hud_event, hud_manager, set_hud_loop
 
 load_dotenv()
 
@@ -59,9 +63,7 @@ DB_PATH = "data/crm.db"
 # ─────────────────────────────────────────────
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return shared_get_db()
 
 
 def outbound_allowed(status: str) -> bool:
@@ -263,6 +265,12 @@ async def import_leads(file_path: str = "../leads_enriched.xlsx"):
                 str(row.get('email_subject', '')) if pd.notna(row.get('email_subject')) else '',
                 str(row.get('email_body', '')) if pd.notna(row.get('email_body')) else '',
             ))
+            lead_id = cursor.lastrowid
+            emit_hud_event("new_lead", {
+                "name": str(row.get('name', '')),
+                "category": str(row.get('query', '')).replace('in Hyderabad', '').replace('in Secunderabad', '').strip(),
+                "lead_id": lead_id,
+            })
             imported += 1
 
         conn.commit()
@@ -373,6 +381,11 @@ async def create_lead(lead: LeadCreate):
     conn.commit()
     lead_id = cursor.lastrowid
     conn.close()
+    emit_hud_event("new_lead", {
+        "name": lead.name,
+        "category": lead.business_type or "",
+        "lead_id": lead_id,
+    })
     return {"success": True, "id": lead_id}
 
 @app.delete("/api/leads/{lead_id}")
@@ -545,6 +558,26 @@ Would that be helpful? — Manikanta | Talktiv AI"""
 # DASHBOARD STATS
 # ─────────────────────────────────────────────
 
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "service": "marvis-crm"}
+
+
+@app.post("/api/bulk-approve")
+async def bulk_approve():
+    """Approve all leads currently in pending_review status."""
+    conn = get_db()
+    result = conn.execute(
+        "UPDATE leads SET status='approved' WHERE status='pending_review'"
+    )
+    conn.commit()
+    count = result.rowcount
+    conn.close()
+    log_activity_event(None, "bulk_approve", "system", f"Bulk approved {count} leads", status="logged", direction="system", metadata={"approved": count})
+    emit_hud_event("bulk_approve", {"approved": count})
+    return {"approved": count, "message": f"{count} leads approved"}
+
+
 @app.get("/api/stats")
 async def get_stats():
     conn = get_db()
@@ -584,6 +617,47 @@ async def get_stats():
         "by_type": by_type,
         "recent_leads": recent_leads
     }
+
+
+@app.get("/api/hot-leads")
+async def hot_leads(limit: int = 10):
+    conn = get_db()
+    leads = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, name, business_type, phone, email, score, status, created_at, updated_at
+            FROM leads
+            WHERE score >= 60
+            ORDER BY score DESC, updated_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    ]
+    conn.close()
+    return {"leads": leads, "count": len(leads)}
+
+
+@app.get("/api/recent-replies")
+async def recent_replies(limit: int = 10):
+    conn = get_db()
+    replies = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT a.*, l.name AS lead_name, l.business_type, l.phone
+            FROM activities a
+            LEFT JOIN leads l ON l.id = a.lead_id
+            WHERE a.type IN ('reply', 'inbound', 'ai_reply')
+            ORDER BY a.created_at DESC, a.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    ]
+    conn.close()
+    return {"replies": replies, "count": len(replies)}
 
 
 @app.get("/api/lead-timeline/{lead_id}")
@@ -626,6 +700,16 @@ async def campaign_stats():
 # ─────────────────────────────────────────────
 # SETTINGS
 # ─────────────────────────────────────────────
+
+@app.websocket("/ws/hud")
+async def hud_websocket(websocket: WebSocket):
+    await hud_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        hud_manager.disconnect(websocket)
+
 
 @app.get("/api/settings")
 async def get_settings():
@@ -1306,6 +1390,7 @@ async def wa_webhook_receive(request: Request, background_tasks: BackgroundTasks
 
 @app.on_event("startup")
 async def startup():
+    set_hud_loop(asyncio.get_running_loop())
     init_db()
     ensure_crm_schema()
     # Migration: add email_source column if missing

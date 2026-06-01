@@ -12,6 +12,8 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import anthropic
 import requests as req_lib
+from db import get_db as shared_get_db
+from hud_bus import emit_hud_event
 from crm_core import classify_reply, log_activity_event, update_lead_status
 
 load_dotenv()
@@ -24,9 +26,7 @@ DB_PATH = "data/crm.db"
 # ─────────────────────────────────────────────
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return shared_get_db()
 
 def get_settings():
     conn = get_db()
@@ -108,6 +108,7 @@ def log_inbound(lead_id: int, phone: str, message: str, wa_msg_id: str = ""):
         note=f"Inbound reply classified as {classification['label']}",
         metadata={"classification": classification["label"], "confidence": classification.get("confidence", 0)},
     )
+    emit_hud_event("new_reply", {"from": phone, "message": message[:200], "lead_id": lead_id})
 
 def send_wa_reply(phone: str, message: str, settings: dict) -> dict:
     """Send WhatsApp reply"""

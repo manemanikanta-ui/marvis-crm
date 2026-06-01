@@ -14,6 +14,8 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 
+from db import get_db as shared_get_db
+from hud_bus import emit_hud_event
 from crm_core import log_activity_event, update_lead_status
 
 load_dotenv()
@@ -22,9 +24,7 @@ DB_PATH = "data/crm.db"
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return shared_get_db()
 
 
 def generate_for_lead(lead: dict) -> dict:
@@ -170,6 +170,7 @@ def enrich_lead_in_db(lead_id: int) -> dict:
                 source="enrichment",
                 note="Outreach generated and waiting for approval",
             )
+            emit_hud_event("approval_needed", {"lead_id": lead_id, "name": lead["name"]})
         log_activity_event(
             lead_id,
             "enrichment",

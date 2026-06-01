@@ -16,6 +16,8 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
+from db import get_db, now_sql, table_columns
+
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -65,19 +67,8 @@ TIMELINE_ICON_MAP = {
 }
 
 
-def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _table_columns(conn: sqlite3.Connection, table: str) -> List[str]:
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    return [row[1] for row in rows]
-
-
-def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str):
-    columns = _table_columns(conn, table)
+def _ensure_column(conn, table: str, column: str, ddl: str):
+    columns = table_columns(conn, table)
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
@@ -124,6 +115,21 @@ def ensure_crm_schema():
         """
     )
 
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS system_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            channel TEXT DEFAULT 'system',
+            content TEXT,
+            status TEXT DEFAULT 'logged',
+            direction TEXT DEFAULT 'system',
+            metadata_json TEXT DEFAULT '{}',
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+        """
+    )
+
     # Safe additive migrations for activities.
     _ensure_column(conn, "activities", "direction", "TEXT DEFAULT 'outbound'")
     _ensure_column(conn, "activities", "metadata_json", "TEXT DEFAULT '{}'")
@@ -147,7 +153,7 @@ def ensure_logs_dir() -> Path:
 
 
 def log_activity_event(
-    lead_id: int,
+    lead_id: Optional[int],
     activity_type: str,
     channel: str,
     content: str,
@@ -166,6 +172,28 @@ def log_activity_event(
     payload = metadata or {}
     created_at = created_at or _now_iso()
     conn = get_db()
+    if lead_id is None:
+        cursor = conn.execute(
+            """
+            INSERT INTO system_events (
+                event_type, channel, content, status, direction, metadata_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                activity_type,
+                channel,
+                content[:2000],
+                status,
+                direction,
+                json.dumps(payload, ensure_ascii=False),
+                created_at,
+            ),
+        )
+        conn.commit()
+        event_id = cursor.lastrowid
+        conn.close()
+        return int(event_id or 0)
     cursor = conn.execute(
         """
         INSERT INTO activities (
@@ -678,4 +706,3 @@ def random_delay_seconds() -> float:
     if max_delay <= 0:
         return 0.0
     return random.uniform(min_delay, max_delay)
-

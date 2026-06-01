@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import pathlib
 
+from db import get_db as shared_get_db
 from crm_core import log_activity_event, update_lead_status, ensure_crm_schema
 
 DB_PATH = "data/crm.db"
@@ -83,9 +84,7 @@ talktivai.com"""
 # ─────────────────────────────────────────────
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return shared_get_db()
 
 def get_settings():
     conn = get_db()

@@ -11,14 +11,14 @@ from datetime import datetime
 from email_engine import send_email_now, TEMPLATES
 from dotenv import load_dotenv
 
+from db import get_db as shared_get_db
+
 load_dotenv()
 
 DB_PATH = "data/crm.db"
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return shared_get_db()
 
 def get_broadcast_leads(
     status_filter: str = "new",

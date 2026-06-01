@@ -23,6 +23,8 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from dotenv import load_dotenv
 
+from db import get_db as shared_get_db
+from hud_bus import emit_hud_event
 from crm_core import (
     SKIP_SCHEDULER_STATUSES,
     count_today_activity,
@@ -80,9 +82,7 @@ _logger = logging.getLogger("marvis.scheduler")
 
 
 def get_db():
-    conn = sqlite3.connect(CRM_DB)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return shared_get_db()
 
 
 def _ensure_logging():
@@ -401,6 +401,7 @@ def _import_enriched_leads(file_path: Path, run_started_at: datetime, campaign_n
                 "whatsapp_message": str(row.get("whatsapp_message", "")).strip(),
             }
         )
+        emit_hud_event("new_lead", {"name": name, "category": campaign_name or str(row.get("query", "")).strip(), "lead_id": cursor.lastrowid})
 
     conn.commit()
     conn.close()
@@ -798,6 +799,10 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
     _set_setting("scheduler_next_run", next_run)
     _record_run(started_at, finished_at, status, overall, details, trigger_type)
     _write_run_log({"status": status, "summary": overall, "details": details})
+    if status == "success":
+        emit_hud_event("scheduler_complete", {"jobs": len(jobs), "leads_found": overall.get("new_leads", 0)})
+    elif status in {"failed", "partial_failure"}:
+        emit_hud_event("scheduler_failed", {"error": details.get("error") or "Scheduler run failed"})
 
     return {"success": status == "success", "status": status, "summary": overall, "details": details}
 

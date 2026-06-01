@@ -1,0 +1,3065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MARVIS CRM — Talktiv AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0f;
+  --surface: #111118;
+  --surface2: #18181f;
+  --border: #ffffff0f;
+  --border2: #ffffff18;
+  --accent: #7c6af7;
+  --accent2: #a78bfa;
+  --green: #22d3a5;
+  --orange: #f97316;
+  --red: #f43f5e;
+  --yellow: #fbbf24;
+  --text: #f1f0ff;
+  --text2: #9998b3;
+  --text3: #5c5b78;
+  --glow: #7c6af740;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* SIDEBAR */
+.sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0;
+  width: 220px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  z-index: 100;
+}
+
+.logo {
+  padding: 24px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo-mark {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800; font-size: 18px;
+  color: var(--text);
+  letter-spacing: -0.5px;
+}
+
+.logo-sub {
+  font-size: 10px; color: var(--text3);
+  font-family: 'DM Mono', monospace;
+  margin-top: 2px; letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.nav { padding: 16px 12px; flex: 1; }
+
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 8px;
+  cursor: pointer; color: var(--text2);
+  font-size: 13.5px; font-weight: 500;
+  transition: all 0.15s; margin-bottom: 2px;
+}
+
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: #7c6af715; color: var(--accent2); }
+
+.nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+.nav-badge {
+  margin-left: auto;
+  background: var(--accent);
+  color: white; font-size: 10px;
+  padding: 2px 6px; border-radius: 20px;
+  font-family: 'DM Mono', monospace;
+}
+
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--text3);
+  font-family: 'DM Mono', monospace;
+}
+
+.status-dot {
+  display: inline-block; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--green);
+  margin-right: 6px; animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* MAIN */
+.main {
+  margin-left: 220px;
+  min-height: 100vh;
+}
+
+.topbar {
+  padding: 20px 32px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  justify-content: space-between;
+  background: var(--bg);
+  position: sticky; top: 0; z-index: 50;
+}
+
+.page-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px; font-weight: 700;
+  color: var(--text);
+}
+
+.topbar-actions { display: flex; gap: 10px; align-items: center; }
+
+.btn {
+  padding: 8px 16px; border-radius: 8px;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer; border: none;
+  font-family: 'DM Sans', sans-serif;
+  transition: all 0.15s;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: white;
+}
+.btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+}
+.btn-outline:hover { border-color: var(--accent); color: var(--accent2); }
+
+.btn-ghost {
+  background: transparent; color: var(--text2);
+  padding: 6px 10px;
+}
+.btn-ghost:hover { color: var(--text); }
+
+.btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+
+.btn-green { background: var(--green); color: #000; }
+.btn-green:hover { opacity: 0.85; }
+
+.btn-red { background: #f43f5e22; color: var(--red); border: 1px solid #f43f5e33; }
+.btn-red:hover { background: #f43f5e33; }
+
+/* CONTENT */
+.content { padding: 28px 32px; }
+
+/* STATS GRID */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 14px; margin-bottom: 24px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px;
+  position: relative; overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 2px;
+}
+
+.stat-card.blue::before { background: linear-gradient(90deg, var(--accent), transparent); }
+.stat-card.green::before { background: linear-gradient(90deg, var(--green), transparent); }
+.stat-card.orange::before { background: linear-gradient(90deg, var(--orange), transparent); }
+.stat-card.yellow::before { background: linear-gradient(90deg, var(--yellow), transparent); }
+.stat-card.red::before { background: linear-gradient(90deg, var(--red), transparent); }
+
+.stat-label {
+  font-size: 11px; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.8px;
+  font-family: 'DM Mono', monospace;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-family: 'Syne', sans-serif;
+  font-size: 28px; font-weight: 700;
+  color: var(--text); line-height: 1;
+}
+
+.stat-sub { font-size: 11px; color: var(--text3); margin-top: 4px; }
+
+/* PANELS */
+.panels { display: grid; grid-template-columns: 1fr 340px; gap: 20px; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+}
+
+.panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  justify-content: space-between;
+}
+
+.panel-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 14px; font-weight: 600;
+}
+
+/* FILTERS */
+.filters {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; gap: 8px; align-items: center;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  padding: 5px 12px; border-radius: 20px;
+  font-size: 12px; cursor: pointer;
+  border: 1px solid var(--border2);
+  color: var(--text2); background: transparent;
+  font-family: 'DM Sans', sans-serif;
+  transition: all 0.15s;
+}
+.filter-chip:hover { border-color: var(--accent); color: var(--accent2); }
+.filter-chip.active { background: #7c6af720; border-color: var(--accent); color: var(--accent2); }
+
+.search-input {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px; padding: 6px 12px;
+  color: var(--text); font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none; width: 200px;
+}
+.search-input:focus { border-color: var(--accent); }
+.search-input::placeholder { color: var(--text3); }
+
+/* LEADS TABLE */
+.leads-table { width: 100%; }
+
+.table-header {
+  display: grid;
+  grid-template-columns: 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px;
+  padding: 10px 20px;
+  font-size: 11px; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.8px;
+  font-family: 'DM Mono', monospace;
+  border-bottom: 1px solid var(--border);
+}
+
+.lead-row {
+  display: grid;
+  grid-template-columns: 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px;
+  padding: 12px 20px; align-items: center;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background 0.1s;
+}
+.lead-row:hover { background: var(--surface2); }
+.lead-row:last-child { border-bottom: none; }
+
+.lead-name {
+  font-weight: 500; font-size: 13.5px;
+  color: var(--text); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+.lead-type {
+  font-size: 12px; color: var(--text2);
+  margin-top: 2px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+.lead-phone { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text2); }
+
+.score-bar {
+  display: flex; align-items: center; gap: 6px;
+}
+
+.score-num {
+  font-family: 'DM Mono', monospace;
+  font-size: 12px; font-weight: 500;
+  min-width: 24px;
+}
+
+.score-track {
+  flex: 1; height: 4px; border-radius: 2px;
+  background: var(--border2); overflow: hidden;
+}
+
+.score-fill {
+  height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+}
+
+/* STATUS BADGES */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 20px;
+  font-size: 11px; font-weight: 500;
+  font-family: 'DM Mono', monospace;
+}
+
+.badge::before {
+  content: '';
+  width: 5px; height: 5px;
+  border-radius: 50%;
+}
+
+.badge-new { background: #7c6af720; color: var(--accent2); }
+.badge-new::before { background: var(--accent2); }
+
+.badge-contacted { background: #fbbf2420; color: var(--yellow); }
+.badge-contacted::before { background: var(--yellow); }
+
+.badge-interested { background: #22d3a520; color: var(--green); }
+.badge-interested::before { background: var(--green); }
+
+.badge-converted { background: #22d3a530; color: var(--green); }
+.badge-converted::before { background: var(--green); box-shadow: 0 0 4px var(--green); }
+
+.badge-declined { background: #f43f5e20; color: var(--red); }
+.badge-declined::before { background: var(--red); }
+.badge-pending_review { background: #fbbf2420; color: var(--yellow); }
+.badge-pending_review::before { background: var(--yellow); }
+.badge-approved { background: #22d3a520; color: var(--green); }
+.badge-approved::before { background: var(--green); }
+.badge-paused { background: #64748b30; color: #94a3b8; }
+.badge-paused::before { background: #94a3b8; }
+.badge-booked { background: #14b8a620; color: #2dd4bf; }
+.badge-booked::before { background: #2dd4bf; }
+.badge-replied { background: #0ea5e920; color: #38bdf8; }
+.badge-replied::before { background: #38bdf8; }
+.badge-pricing { background: #f59e0b20; color: #f59e0b; }
+.badge-pricing::before { background: #f59e0b; }
+.badge-callback { background: #a855f720; color: #c084fc; }
+.badge-callback::before { background: #c084fc; }
+.badge-followup_later { background: #84cc1620; color: #a3e635; }
+.badge-followup_later::before { background: #a3e635; }
+.badge-sent { background: #22d3a520; color: var(--green); }
+.badge-sent::before { background: var(--green); }
+.badge-failed { background: #f43f5e20; color: var(--red); }
+.badge-failed::before { background: var(--red); }
+.badge-received { background: #0ea5e920; color: #38bdf8; }
+.badge-received::before { background: #38bdf8; }
+.badge-logged { background: #64748b30; color: #cbd5e1; }
+.badge-logged::before { background: #cbd5e1; }
+.badge-ready_to_send { background: #f59e0b20; color: #f59e0b; }
+.badge-ready_to_send::before { background: #f59e0b; }
+
+.row-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; }
+.lead-row:hover .row-actions { opacity: 1; }
+
+/* SIDE PANEL */
+.side-panel { display: flex; flex-direction: column; gap: 0; }
+
+.activity-feed { padding: 16px 20px; flex: 1; overflow-y: auto; max-height: 400px; }
+
+.activity-item {
+  display: flex; gap: 12px; margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.activity-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.activity-dot.email { background: var(--yellow); }
+.activity-dot.whatsapp { background: var(--green); }
+
+.activity-text { color: var(--text2); line-height: 1.5; }
+.activity-name { color: var(--text); font-weight: 500; }
+.activity-time { font-size: 11px; color: var(--text3); font-family: 'DM Mono', monospace; }
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.analytics-card {
+  background: linear-gradient(180deg, var(--surface), var(--surface2));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.analytics-label {
+  font-size: 11px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-family: 'DM Mono', monospace;
+}
+
+.analytics-value {
+  font-family: 'Syne', sans-serif;
+  font-size: 24px;
+  color: var(--text);
+  margin-top: 8px;
+}
+
+.timeline-shell {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.timeline-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.04);
+  font-size: 14px;
+}
+
+.timeline-main { min-width: 0; }
+.timeline-title { font-size: 12.5px; color: var(--text); font-weight: 500; }
+.timeline-preview { font-size: 12px; color: var(--text2); margin-top: 4px; line-height: 1.5; word-break: break-word; }
+.timeline-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.timeline-time { font-size: 10.5px; color: var(--text3); font-family: 'DM Mono', monospace; }
+.timeline-channel { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; text-transform: uppercase; }
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+/* LEAD MODAL */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: #000000cc; backdrop-filter: blur(4px);
+  z-index: 200; display: none;
+  align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 16px; width: 680px;
+  max-height: 85vh; overflow-y: auto;
+  box-shadow: 0 32px 80px #00000080;
+}
+
+.modal-header {
+  padding: 24px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between;
+  align-items: flex-start;
+}
+
+.modal-body { padding: 24px 28px; }
+.modal-footer {
+  padding: 16px 28px;
+  border-top: 1px solid var(--border);
+  display: flex; gap: 10px; justify-content: flex-end;
+}
+
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+
+.field-label {
+  font-size: 11px; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.8px;
+  font-family: 'DM Mono', monospace; margin-bottom: 6px;
+}
+
+.field-value {
+  font-size: 13.5px; color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+  font-family: 'DM Mono', monospace;
+}
+
+.message-box {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px;
+  font-size: 13px; color: var(--text2);
+  line-height: 1.6; white-space: pre-wrap;
+  margin-top: 8px;
+}
+
+.section-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 13px; font-weight: 600;
+  color: var(--text); margin: 20px 0 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+
+.section-title::after {
+  content: '';
+  flex: 1; height: 1px;
+  background: var(--border);
+}
+
+/* STATUS SELECT */
+.status-select {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 6px; padding: 5px 10px;
+  color: var(--text); font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer; outline: none;
+}
+
+/* TOAST */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 10px; padding: 12px 18px;
+  font-size: 13px; color: var(--text);
+  box-shadow: 0 8px 32px #00000060;
+  transform: translateY(80px); opacity: 0;
+  transition: all 0.3s; z-index: 300;
+  display: flex; align-items: center; gap: 10px;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+
+/* IMPORT BANNER */
+.import-banner {
+  background: linear-gradient(135deg, #7c6af715, #22d3a510);
+  border: 1px solid #7c6af730;
+  border-radius: 12px; padding: 16px 20px;
+  display: flex; align-items: center;
+  justify-content: space-between; margin-bottom: 20px;
+}
+
+.import-text { font-size: 13.5px; color: var(--text2); }
+.import-text strong { color: var(--text); }
+
+/* EMPTY STATE */
+.empty-state {
+  padding: 60px 20px; text-align: center;
+  color: var(--text3);
+}
+.empty-icon { font-size: 40px; margin-bottom: 12px; }
+.empty-title { font-size: 15px; color: var(--text2); font-weight: 500; margin-bottom: 6px; }
+.empty-sub { font-size: 13px; }
+
+/* PIPELINE VIEW */
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(180px, 1fr));
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.pipeline-col {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px;
+  min-height: 300px;
+}
+
+.pipeline-col-header {
+  font-size: 12px; font-weight: 600;
+  color: var(--text2); margin-bottom: 12px;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  font-family: 'DM Mono', monospace;
+  display: flex; justify-content: space-between;
+}
+
+.pipeline-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px;
+  margin-bottom: 8px; cursor: pointer;
+  font-size: 12.5px;
+  transition: border-color 0.15s;
+}
+.pipeline-card:hover { border-color: var(--accent); }
+
+.pipeline-card-name { font-weight: 500; color: var(--text); margin-bottom: 4px; }
+.pipeline-card-type { color: var(--text3); font-size: 11px; }
+
+/* LOADING */
+.loading {
+  display: flex; align-items: center;
+  justify-content: center; padding: 40px;
+  color: var(--text3);
+}
+
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin-right: 10px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* LOCATION DROPDOWN */
+.loc-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 8px; margin-top: 4px;
+  max-height: 200px; overflow-y: auto;
+  display: none; box-shadow: 0 8px 24px #00000060;
+}
+.loc-dropdown.open { display: block; }
+.loc-option {
+  padding: 9px 14px; cursor: pointer;
+  font-size: 13px; color: var(--text2);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.loc-option:last-child { border-bottom: none; }
+.loc-option:hover, .loc-option.selected { background: var(--surface2); color: var(--text); }
+.loc-option strong { color: var(--accent2); }
+
+.cat-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 20px;
+  background: #7c6af720; border: 1px solid #7c6af740;
+  color: var(--accent2); font-size: 12px; cursor: pointer;
+  transition: all 0.15s;
+}
+.cat-chip.active { background: var(--accent); border-color: var(--accent); color: white; }
+.cat-chip:hover { border-color: var(--accent2); }
+.cat-chip .remove { opacity: 0.6; font-size: 14px; line-height: 1; }
+.cat-chip .remove:hover { opacity: 1; }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">MARVIS CRM</div>
+    <div class="logo-sub">Talktiv AI · Lead Engine</div>
+  </div>
+  <nav class="nav">
+    <div class="nav-item active" onclick="showView('dashboard')">
+      <span class="nav-icon">⚡</span> Dashboard
+    </div>
+    <div class="nav-item" onclick="showView('leads')">
+      <span class="nav-icon">👥</span> All Leads
+      <span class="nav-badge" id="nav-total">0</span>
+    </div>
+    <div class="nav-item" onclick="showView('pipeline')">
+      <span class="nav-icon">📊</span> Pipeline
+    </div>
+    <div class="nav-item" onclick="showView('followups')">
+      <span class="nav-icon">🔔</span> Follow-ups
+      <span class="nav-badge" id="nav-followups" style="background:#f97316">0</span>
+    </div>
+    <div class="nav-item" onclick="showView('findleads')">
+      <span class="nav-icon">🎯</span> Find Leads
+    </div>
+    <div class="nav-item" onclick="showView('settings')">
+      <span class="nav-icon">⚙️</span> Settings
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <span class="status-dot"></span>
+    CRM v1.0 · Online
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="page-title" id="page-title">Dashboard</div>
+    <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="importLeads()">⬆ Import Leads</button>
+      <button class="btn btn-outline btn-sm" onclick="runBatchEmailFinder()">🔍 Find All Emails</button>
+      <button class="btn btn-outline btn-sm" onclick="enrichAllLeads()">✨ Enrich All</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddLead()">+ Add Lead</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- DASHBOARD VIEW -->
+    <div id="view-dashboard">
+      <div class="stats-grid">
+        <div class="stat-card blue">
+          <div class="stat-label">Total Leads</div>
+          <div class="stat-value" id="stat-total">—</div>
+          <div class="stat-sub">All time</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-label">Hot Leads</div>
+          <div class="stat-value" id="stat-hot">—</div>
+          <div class="stat-sub">Score ≥ 60</div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-label">Contacted</div>
+          <div class="stat-value" id="stat-contacted">—</div>
+          <div class="stat-sub">Outreach sent</div>
+        </div>
+        <div class="stat-card orange">
+          <div class="stat-label">Converted</div>
+          <div class="stat-value" id="stat-converted">—</div>
+          <div class="stat-sub" id="stat-rate">0% rate</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-label">Follow-ups</div>
+          <div class="stat-value" id="stat-followups">—</div>
+          <div class="stat-sub">Pending</div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-label">Approvals</div>
+          <div class="stat-value" id="stat-approvals">—</div>
+          <div class="stat-sub">Waiting review</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px;">
+        <div class="panel-header">
+          <div class="panel-title">📊 Campaign Analytics</div>
+          <div style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;" id="analytics-updated">Live</div>
+        </div>
+        <div class="analytics-grid" id="campaign-analytics-cards">
+          <div class="analytics-card"><div class="analytics-label">Emails Sent</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card"><div class="analytics-label">WhatsApp Sent</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card"><div class="analytics-label">Replies</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card"><div class="analytics-label">Interested</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card"><div class="analytics-label">Booked</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card"><div class="analytics-label">Failure Rate</div><div class="analytics-value">—</div></div>
+        </div>
+      </div>
+
+      <div class="panels">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🔥 Hot Leads — Ready to Contact</div>
+            <button class="btn btn-ghost btn-sm" onclick="showView('leads')">View all →</button>
+          </div>
+          <div id="hot-leads-list">
+            <div class="loading"><div class="spinner"></div>Loading...</div>
+          </div>
+        </div>
+
+        <div class="panel" id="pending-approvals-panel">
+          <div class="panel-header">
+            <div class="panel-title">🛡 Pending Approvals</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-ghost btn-sm" onclick="loadPendingApprovals()">Refresh</button>
+              <button class="btn btn-primary btn-sm" onclick="bulkApprovePending()">Bulk Approve</button>
+              <button class="btn btn-outline btn-sm" onclick="bulkPausePending()">Bulk Pause</button>
+            </div>
+          </div>
+          <div style="padding:0 20px 20px;color:var(--text3);font-size:12px;">
+            Review generated outreach before it reaches inboxes or WhatsApp.
+          </div>
+          <div id="pending-approvals-list" style="padding:0 20px 20px;">
+            <div class="loading"><div class="spinner"></div>Loading approvals...</div>
+          </div>
+        </div>
+
+        <div class="panel side-panel">
+          <div class="panel-header">
+            <div class="panel-title">📋 Recent Activity</div>
+          </div>
+          <div class="activity-feed" id="activity-feed">
+            <div class="empty-state">
+              <div class="empty-icon">💤</div>
+              <div class="empty-title">No activity yet</div>
+              <div class="empty-sub">Start contacting leads to see activity here</div>
+            </div>
+          </div>
+          <div style="padding:14px 20px; border-top:1px solid var(--border);">
+            <div class="panel-title" style="margin-bottom:12px;">📈 Leads by Type</div>
+            <div id="by-type-chart"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEADS VIEW -->
+    <div id="view-leads" style="display:none">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">All Leads</div>
+          <input class="search-input" placeholder="🔍  Search leads..." oninput="searchLeads(this.value)" id="search-input">
+        </div>
+        <div class="filters">
+          <button class="filter-chip active" onclick="filterLeads('all', this)">All</button>
+          <button class="filter-chip" onclick="filterLeads('new', this)">New</button>
+          <button class="filter-chip" onclick="filterLeads('contacted', this)">Contacted</button>
+          <button class="filter-chip" onclick="filterLeads('interested', this)">Interested</button>
+          <button class="filter-chip" onclick="filterLeads('converted', this)">Converted</button>
+          <button class="filter-chip" onclick="filterLeads('declined', this)">Declined</button>
+        </div>
+        <div class="table-header">
+          <span>BUSINESS</span>
+          <span>PHONE</span>
+          <span>EMAIL</span>
+          <span>REVIEWS</span>
+          <span>SCORE</span>
+          <span>STATUS</span>
+          <span></span>
+        </div>
+        <div id="leads-list">
+          <div class="loading"><div class="spinner"></div>Loading leads...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PIPELINE VIEW -->
+    <div id="view-pipeline" style="display:none">
+      <div class="pipeline" id="pipeline-board">
+        <div class="loading"><div class="spinner"></div>Loading pipeline...</div>
+      </div>
+    </div>
+
+    <!-- FOLLOWUPS VIEW -->
+    <div id="view-followups" style="display:none">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">🔔 Pending Follow-ups</div>
+        </div>
+        <div id="followups-list" style="padding:20px">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- FIND LEADS VIEW -->
+    <div id="view-findleads" style="display:none">
+
+      <!-- Location + Category Bar -->
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-header">
+          <div class="panel-title">🎯 Find Leads — Location & Category</div>
+          <div id="scrape-status-badge" style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;"></div>
+        </div>
+        <div style="padding:20px;display:flex;flex-direction:column;gap:16px;">
+
+          <!-- Location Row -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+
+            <!-- Country -->
+            <div style="position:relative;">
+              <div class="field-label">Country</div>
+              <input id="loc-country" class="search-input" placeholder="e.g. IND, India, IN..."
+                style="width:100%;font-size:13px;" oninput="autocompleteLocation('country', this.value)"
+                onfocus="showAllOptions('country')"
+                onkeydown="handleLocKey(event,'country')" autocomplete="off">
+              <div id="dd-country" class="loc-dropdown"></div>
+            </div>
+
+            <!-- State -->
+            <div style="position:relative;">
+              <div class="field-label">State / Province</div>
+              <input id="loc-state" class="search-input" placeholder="e.g. Telangana, MH..."
+                style="width:100%;font-size:13px;" oninput="autocompleteLocation('state', this.value)"
+                onfocus="showAllOptions('state')"
+                onkeydown="handleLocKey(event,'state')" autocomplete="off">
+              <div id="dd-state" class="loc-dropdown"></div>
+            </div>
+
+            <!-- Suburb / City -->
+            <div style="position:relative;">
+              <div class="field-label">City / Suburb</div>
+              <input id="loc-suburb" class="search-input" placeholder="e.g. Hyderabad, Banjara Hills..."
+                style="width:100%;font-size:13px;" oninput="autocompleteLocation('suburb', this.value)"
+                onfocus="showAllOptions('suburb')"
+                onkeydown="handleLocKey(event,'suburb')" autocomplete="off">
+              <div id="dd-suburb" class="loc-dropdown"></div>
+            </div>
+          </div>
+
+          <!-- Category Row -->
+          <div>
+            <div class="field-label">Business Categories</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;" id="category-chips">
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <input id="custom-category" class="search-input" placeholder="Add custom category..."
+                style="flex:1;" onkeydown="if(event.key==='Enter')addCustomCategory()">
+              <button class="btn btn-outline btn-sm" onclick="addCustomCategory()">+ Add</button>
+            </div>
+          </div>
+
+          <!-- Controls Row -->
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div>
+              <div class="field-label">Max per category</div>
+              <select id="max-results" class="status-select" style="width:100px;">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="40">40</option>
+                <option value="60">60</option>
+              </select>
+            </div>
+            <div style="flex:1"></div>
+            <button class="btn btn-outline btn-sm" onclick="clearAll()">✕ Clear</button>
+            <button class="btn btn-primary" onclick="startScrape()" id="scrape-btn"
+              style="padding:10px 24px;font-size:14px;">
+              🚀 Find Leads
+            </button>
+          </div>
+
+          <!-- Progress Bar -->
+          <div id="scrape-progress" style="display:none;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:12px;color:var(--text2)" id="progress-label">Scraping...</span>
+              <span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text3)" id="progress-count"></span>
+            </div>
+            <div style="height:4px;background:var(--border2);border-radius:2px;overflow:hidden;">
+              <div id="progress-bar" style="height:100%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:2px;width:0%;transition:width 0.5s;"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Map + Results Row -->
+      <div style="display:grid;grid-template-columns:1fr 380px;gap:20px;">
+
+        <!-- Map -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🗺️ Lead Map</div>
+            <span style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace" id="map-count">0 leads</span>
+          </div>
+          <div id="lead-map" style="height:480px;background:var(--surface2);border-radius:0 0 12px 12px;position:relative;overflow:hidden;">
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--text3);" id="map-placeholder">
+              <div style="font-size:48px;">🗺️</div>
+              <div style="font-size:14px;font-weight:500;color:var(--text2)">Map will appear here after search</div>
+              <div style="font-size:12px;">Leads will be pinned on the map as they're found</div>
+            </div>
+            <iframe id="map-iframe" style="width:100%;height:100%;border:none;display:none;" allowfullscreen></iframe>
+          </div>
+        </div>
+
+        <!-- Live Results Panel -->
+        <div class="panel" style="display:flex;flex-direction:column;">
+          <div class="panel-header">
+            <div class="panel-title">📋 Found Leads</div>
+            <button class="btn btn-ghost btn-sm" onclick="showView('leads')">View all →</button>
+          </div>
+          <div id="found-leads-list" style="flex:1;overflow-y:auto;max-height:480px;">
+            <div class="empty-state">
+              <div class="empty-icon">🔍</div>
+              <div class="empty-title">No results yet</div>
+              <div class="empty-sub">Set location + categories and click Find Leads</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- SETTINGS VIEW -->
+    <div id="view-settings" style="display:none">
+      <div style="max-width:620px;display:flex;flex-direction:column;gap:16px;">
+
+        <!-- Gmail Config -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">📧 Gmail Configuration</div>
+            <button class="btn btn-outline btn-sm" onclick="testEmail()">Send Test Email</button>
+          </div>
+          <div style="padding:24px;display:flex;flex-direction:column;gap:14px;">
+            <div>
+              <div class="field-label">Gmail Address</div>
+              <input class="field-value" id="s-email" placeholder="your@gmail.com" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('email_user', this.value)">
+            </div>
+            <div>
+              <div class="field-label">Gmail App Password</div>
+              <input class="field-value" id="s-pass" type="password" placeholder="16-char app password" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('email_pass', this.value)">
+            </div>
+            <div>
+              <div class="field-label">Sender Name</div>
+              <input class="field-value" id="s-name" placeholder="Manikanta | Talktiv AI" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('sender_name', this.value)">
+            </div>
+            <div style="font-size:12px;color:var(--text3);background:var(--surface2);padding:12px;border-radius:8px;line-height:1.7;">
+              💡 <strong style="color:var(--text2)">Gmail App Password:</strong> myaccount.google.com → Security → 2-Step Verification → App passwords → Generate for "Mail".<br>
+              Never use your real Gmail password here.
+            </div>
+          </div>
+        </div>
+
+        <!-- Automation Settings -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🤖 Automation Settings</div>
+          </div>
+          <div style="padding:24px;display:flex;flex-direction:column;gap:16px;">
+
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+              <div>
+                <div style="font-size:13.5px;font-weight:500;color:var(--text)">Auto Follow-up Sequence</div>
+                <div style="font-size:12px;color:var(--text3);margin-top:3px">After sending an email, auto-schedule Day 3 + Day 7 follow-ups</div>
+              </div>
+              <label style="cursor:pointer;display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="s-auto-seq" onchange="saveSetting('auto_sequence_enabled', this.checked ? 'true' : 'false')" style="width:16px;height:16px;accent-color:var(--accent)">
+              </label>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+              <div>
+                <div style="font-size:13.5px;font-weight:500;color:var(--text)">Auto-Send Engine</div>
+                <div style="font-size:12px;color:var(--text3);margin-top:3px">Automatically send scheduled follow-ups without manual trigger</div>
+              </div>
+              <label style="cursor:pointer;display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="s-auto-send" onchange="saveSetting('auto_send_enabled', this.checked ? 'true' : 'false')" style="width:16px;height:16px;accent-color:var(--accent)">
+              </label>
+            </div>
+
+            <div>
+              <div class="field-label">Follow-up Delay (days)</div>
+              <input class="field-value" id="s-days" type="number" value="3" style="width:120px;border:1px solid var(--border2);outline:none;" onblur="saveSetting('auto_followup_days', this.value)">
+            </div>
+          </div>
+        </div>
+
+        <!-- WhatsApp Config -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">📱 WhatsApp Business API</div>
+            <button class="btn btn-outline btn-sm" onclick="verifyWhatsApp()">Verify Connection</button>
+          </div>
+          <div style="padding:24px;display:flex;flex-direction:column;gap:14px;">
+            <div id="wa-status-banner" style="display:none;padding:10px 14px;border-radius:8px;font-size:13px;"></div>
+            <div>
+              <div class="field-label">WhatsApp Phone Number ID</div>
+              <input class="field-value" id="s-wa-phone-id" placeholder="From Meta Developer Console..."
+                style="width:100%;border:1px solid var(--border2);outline:none;"
+                onblur="saveSetting('wa_phone_id', this.value)">
+            </div>
+            <div>
+              <div class="field-label">WhatsApp Access Token</div>
+              <input class="field-value" id="s-wa-token" type="password" placeholder="Permanent or temporary token..."
+                style="width:100%;border:1px solid var(--border2);outline:none;"
+                onblur="saveSetting('wa_token', this.value)">
+            </div>
+            <div style="font-size:12px;color:var(--text3);background:var(--surface2);padding:12px;border-radius:8px;line-height:1.7;">
+              💡 <strong style="color:var(--text2)">Where to find these:</strong><br>
+              1. Go to <strong>developers.facebook.com</strong><br>
+              2. Your App → WhatsApp → API Setup<br>
+              3. Copy <strong>Phone Number ID</strong> and <strong>Access Token</strong><br>
+              <br>
+              ⚠️ For cold outreach, you need an <strong>approved message template</strong> in Meta Business Manager.
+              Free-form messages only work within 24hr reply window.
+            </div>
+          </div>
+        </div>
+
+        <!-- Email Broadcast -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">📣 Email Broadcast</div>
+            <button class="btn btn-outline btn-sm" onclick="loadBroadcastStats()">Refresh Stats</button>
+          </div>
+          <div style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+            <div id="broadcast-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+              <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:22px;font-weight:700;font-family:'Syne',sans-serif;" id="bs-total">—</div>
+                <div style="font-size:11px;color:var(--text3);">Total Leads</div>
+              </div>
+              <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:22px;font-weight:700;font-family:'Syne',sans-serif;color:var(--green)" id="bs-email">—</div>
+                <div style="font-size:11px;color:var(--text3);">Have Email</div>
+              </div>
+              <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:22px;font-weight:700;font-family:'Syne',sans-serif;color:var(--accent2)" id="bs-ready">—</div>
+                <div style="font-size:11px;color:var(--text3);">Ready to Send</div>
+              </div>
+            </div>
+
+            <div id="broadcast-by-type" style="font-size:12px;color:var(--text3);"></div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <div>
+                <div class="field-label">Max emails</div>
+                <select id="broadcast-limit" class="status-select" style="width:90px;">
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                </select>
+              </div>
+              <div>
+                <div class="field-label">Business type</div>
+                <select id="broadcast-type" class="status-select" style="width:150px;">
+                  <option value="">All types</option>
+                  <option value="real estate">Real Estate</option>
+                  <option value="dental">Dental</option>
+                  <option value="interior">Interior</option>
+                  <option value="medical">Medical</option>
+                  <option value="coaching">Coaching</option>
+                </select>
+              </div>
+              <div style="flex:1"></div>
+              <button class="btn btn-outline btn-sm" onclick="runBroadcast(true)">🔍 Dry Run</button>
+              <button class="btn btn-primary" onclick="runBroadcast(false)" id="broadcast-btn">
+                📣 Send Broadcast
+              </button>
+            </div>
+
+            <div id="broadcast-progress" style="display:none;">
+              <div style="height:4px;background:var(--border2);border-radius:2px;overflow:hidden;margin-bottom:8px;">
+                <div id="broadcast-bar" style="height:100%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:2px;width:0%;transition:width 1s;"></div>
+              </div>
+              <div style="font-size:12px;color:var(--text2);" id="broadcast-status-text">Starting...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- WA Auto Reply Toggle -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🤖 WhatsApp Auto-Reply</div>
+          </div>
+          <div style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+              <div>
+                <div style="font-size:13.5px;font-weight:500;">AI Auto-Reply to Inbound Messages</div>
+                <div style="font-size:12px;color:var(--text3);margin-top:3px;">When leads reply on WhatsApp, Claude responds automatically</div>
+              </div>
+              <input type="checkbox" id="s-wa-auto-reply" onchange="saveSetting('wa_auto_reply', this.checked?'true':'false')" style="width:16px;height:16px;accent-color:var(--accent)">
+            </div>
+            <div style="font-size:12px;color:var(--text3);background:var(--surface2);padding:12px;border-radius:8px;line-height:1.7;">
+              💡 <strong style="color:var(--text2)">Webhook URL for Meta:</strong><br>
+              <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:11px;">http://YOUR-SERVER:8000/webhook/whatsapp</code><br>
+              <strong style="color:var(--text2)">Verify Token:</strong>
+              <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:11px;">marvis_verify_2024</code>
+            </div>
+          </div>
+        </div>
+
+        <!-- Email Queue Preview -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">📬 Email Queue</div>
+            <button class="btn btn-ghost btn-sm" onclick="loadEmailQueue()">Refresh</button>
+          </div>
+          <div id="email-queue-list" style="padding:16px;">
+            <div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Click Refresh to load queue</div>
+          </div>
+        </div>
+
+        <!-- Daily Scheduler -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">⏰ Daily Scheduler</div>
+            <button class="btn btn-ghost btn-sm" onclick="loadSchedulerStatus()">Refresh</button>
+          </div>
+          <div style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+            <div id="scheduler-status-banner" style="display:none;padding:10px 14px;border-radius:8px;font-size:13px;"></div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div style="background:var(--surface2);padding:12px;border-radius:8px;">
+                <div class="field-label">Enabled</div>
+                <input type="checkbox" id="sched-enabled" style="width:16px;height:16px;accent-color:var(--accent)">
+              </div>
+              <div style="background:var(--surface2);padding:12px;border-radius:8px;">
+                <div class="field-label">Auto Email</div>
+                <input type="checkbox" id="sched-auto-send" style="width:16px;height:16px;accent-color:var(--accent)">
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <div style="font-size:12px;color:var(--text3);">Each row defines one scrape job: location + category + time + lead limit.</div>
+              <button class="btn btn-ghost btn-sm" onclick="addSchedulerJobRow()">+ Add Location</button>
+            </div>
+            <div id="sched-jobs-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+            <div style="padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;gap:12px;">
+              <div class="field-label" style="margin-bottom:0;">Safety Controls</div>
+              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+                <div>
+                  <div class="field-label">Max Emails / Day</div>
+                  <input class="field-value" id="s-max-emails" type="number" min="1" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('max_emails_per_day', this.value)">
+                </div>
+                <div>
+                  <div class="field-label">Max WhatsApp / Day</div>
+                  <input class="field-value" id="s-max-wa" type="number" min="1" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('max_whatsapp_per_day', this.value)">
+                </div>
+                <div>
+                  <div class="field-label">Delay Min (sec)</div>
+                  <input class="field-value" id="s-delay-min" type="number" min="0" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('random_delay_min', this.value)">
+                </div>
+                <div>
+                  <div class="field-label">Delay Max (sec)</div>
+                  <input class="field-value" id="s-delay-max" type="number" min="0" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('random_delay_max', this.value)">
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);">
+                  <input type="checkbox" id="s-office-hours" onchange="saveSetting('office_hours_only', this.checked ? 'true' : 'false')" style="width:16px;height:16px;accent-color:var(--accent)">
+                  Office hours only
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);">
+                  <input type="checkbox" id="s-pause-failures" onchange="saveSetting('pause_on_failures', this.checked ? 'true' : 'false')" style="width:16px;height:16px;accent-color:var(--accent)">
+                  Pause on failures
+                </label>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-outline btn-sm" onclick="saveSchedulerConfig()">Save Config</button>
+              <button class="btn btn-primary btn-sm" onclick="runSchedulerNow()" id="sched-run-btn">Run Now</button>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;font-size:12px;color:var(--text3);">
+              <div>
+                <div class="field-label">Last Run</div>
+                <div id="sched-last-run">—</div>
+              </div>
+              <div>
+                <div class="field-label">Next Run</div>
+                <div id="sched-next-run">—</div>
+              </div>
+              <div>
+                <div class="field-label">Last Status</div>
+                <div id="sched-last-status">—</div>
+              </div>
+              <div>
+                <div class="field-label">Summary</div>
+                <div id="sched-summary">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- LEAD MODAL -->
+<div class="modal-overlay" id="lead-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;" id="modal-name">—</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:4px;" id="modal-type">—</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select class="status-select" id="modal-status" onchange="updateStatus()">
+          <option value="new">New</option>
+          <option value="pending_review">Pending Review</option>
+          <option value="approved">Approved</option>
+          <option value="paused">Paused</option>
+          <option value="contacted">Contacted</option>
+          <option value="interested">Interested</option>
+          <option value="booked">Booked</option>
+          <option value="converted">Converted</option>
+          <option value="declined">Declined</option>
+          <option value="pricing">Pricing</option>
+          <option value="callback">Callback</option>
+          <option value="followup_later">Follow-up Later</option>
+          <option value="spam">Spam</option>
+        </select>
+        <button class="btn btn-ghost" onclick="closeModal()">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="field-grid">
+        <div>
+          <div class="field-label">Phone</div>
+          <div class="field-value" id="modal-phone">—</div>
+        </div>
+        <div>
+          <div class="field-label">Reviews / Score</div>
+          <div class="field-value" id="modal-score">—</div>
+        </div>
+        <div>
+          <div class="field-label">Website</div>
+          <div class="field-value" id="modal-website" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</div>
+        </div>
+        <div>
+          <div class="field-label">Address</div>
+          <div class="field-value" id="modal-address" style="font-size:11px;">—</div>
+        </div>
+      </div>
+
+      <div class="section-title">WhatsApp Message</div>
+      <div class="message-box" id="modal-whatsapp">—</div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" onclick="generateMessage()" id="gen-msg-btn">✨ Generate</button>
+        <button class="btn btn-green btn-sm" onclick="sendWhatsApp()" id="wa-send-btn">📱 Send WhatsApp</button>
+        <button class="btn btn-outline btn-sm" onclick="copyWhatsApp()">📋 Copy</button>
+        <button class="btn btn-outline btn-sm" onclick="markContacted()">✓ Mark Contacted</button>
+        <button class="btn btn-outline btn-sm" onclick="scheduleWAFollowup()">🔔 Follow-up</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px;" id="wa-send-status"></div>
+
+      <div class="section-title">Email Outreach</div>
+      <div>
+        <div class="field-label">Subject</div>
+        <div class="field-value" id="modal-email-subject" style="margin-bottom:8px;">—</div>
+        <div class="field-label">Body</div>
+        <div class="message-box" id="modal-email-body">—</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <input class="search-input" id="modal-email-input" placeholder="Their email address..." style="flex:1;min-width:180px;">
+        <button class="btn btn-outline btn-sm" onclick="findEmailForLead()" title="Auto-find their email">🔍 Find Email</button>
+        <button class="btn btn-outline btn-sm" onclick="sendEmail()">✉ Send Once</button>
+        <button class="btn btn-primary btn-sm" onclick="launchSequence()">🚀 Launch Sequence</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px;">
+        🔍 Find Email = auto-scrapes their website · 🚀 Sequence = Day 0 + Day 3 + Day 7 auto-scheduled
+        &nbsp;·&nbsp; Source: <span id="modal-email-source" style="color:var(--accent2);">—</span>
+      </div>
+
+      <div class="section-title">Approval & Timeline</div>
+      <div style="padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);">
+        <div style="font-size:12px;color:var(--text2);line-height:1.6;">
+          Outreach stays in <strong>pending review</strong> until approved. Use this queue to approve, pause, or regenerate before any outbound send.
+        </div>
+        <div class="approval-actions">
+          <button class="btn btn-green btn-sm" onclick="approveOutreach()">Approve</button>
+          <button class="btn btn-outline btn-sm" onclick="pauseOutreach()">Pause</button>
+          <button class="btn btn-primary btn-sm" onclick="generateMessage()">Regenerate</button>
+        </div>
+      </div>
+      <div class="timeline-shell" style="margin-top:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div class="field-label" style="margin:0;">Conversation Timeline</div>
+          <div style="font-size:11px;color:var(--text3);" id="timeline-count">—</div>
+        </div>
+        <div id="lead-timeline-list" class="timeline-list">
+          <div style="color:var(--text3);font-size:13px;padding:16px;text-align:center;">Loading timeline...</div>
+        </div>
+      </div>
+
+      <div class="section-title">Notes</div>
+      <textarea id="modal-notes" 
+        style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;resize:vertical;min-height:80px;outline:none;"
+        placeholder="Add notes about this lead..."
+        onblur="saveNotes()"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-red btn-sm" onclick="deleteLead()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <span id="toast-icon">✅</span>
+  <span id="toast-msg">Done!</span>
+</div>
+
+<script>
+const API = window.location.origin + '/api';
+let currentLeadId = null;
+let currentFilter = 'all';
+let searchQuery = '';
+let allLeads = [];
+
+// ─────────────────────────────────────────────
+// NAVIGATION
+// ─────────────────────────────────────────────
+const views = ['dashboard', 'leads', 'pipeline', 'followups', 'findleads', 'settings'];
+const titles = { dashboard: 'Dashboard', leads: 'All Leads', pipeline: 'Pipeline', followups: 'Follow-ups', findleads: 'Find Leads', settings: 'Settings' };
+
+function showView(view) {
+  views.forEach(v => {
+    document.getElementById(`view-${v}`).style.display = v === view ? 'block' : 'none';
+  });
+  document.querySelectorAll('.nav-item').forEach((el, i) => {
+    el.classList.toggle('active', views[i] === view);
+  });
+  document.getElementById('page-title').textContent = titles[view];
+  if (view === 'dashboard') loadDashboard();
+  if (view === 'leads') loadLeads();
+  if (view === 'pipeline') loadPipeline();
+  if (view === 'followups') loadFollowups();
+  if (view === 'settings') loadSettings();
+  if (view === 'findleads') initFindLeads();
+}
+
+function routeFromHash() {
+  const raw = (window.location.hash || '').replace('#', '').toLowerCase();
+  if (!raw) return;
+  if (raw === 'hot-leads') {
+    showView('dashboard');
+    setTimeout(() => {
+      const el = document.getElementById('hot-leads-list');
+      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+    return;
+  }
+  if (raw === 'approvals') {
+    showView('dashboard');
+    setTimeout(() => {
+      const el = document.getElementById('pending-approvals-panel');
+      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+    return;
+  }
+  if (views.includes(raw)) showView(raw);
+}
+
+window.addEventListener('hashchange', routeFromHash);
+
+// ─────────────────────────────────────────────
+// DASHBOARD
+// ─────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    const stats = await fetch(`${API}/stats`).then(r => r.json());
+    document.getElementById('stat-total').textContent = stats.total_leads;
+    document.getElementById('stat-hot').textContent = stats.hot_leads;
+    document.getElementById('stat-contacted').textContent = stats.contacted;
+    document.getElementById('stat-converted').textContent = stats.converted;
+    document.getElementById('stat-followups').textContent = stats.pending_followups;
+    document.getElementById('stat-approvals').textContent = stats.pending_approvals || 0;
+    document.getElementById('stat-rate').textContent = `${stats.conversion_rate}% rate`;
+    document.getElementById('nav-total').textContent = stats.total_leads;
+    document.getElementById('nav-followups').textContent = stats.pending_followups;
+
+    // Hot leads preview
+    const hotRes = await fetch(`${API}/leads?limit=8`).then(r => r.json());
+    const hotLeads = (hotRes.leads || []).filter(l => (l.score || 0) >= 60).slice(0, 6);
+    const container = document.getElementById('hot-leads-list');
+
+    if (hotLeads.length === 0) {
+      container.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <div class="empty-title">No leads yet</div>
+        <div class="empty-sub">Click "Import Leads" to load your scraped data</div>
+      </div>`;
+      loadPendingApprovals();
+      return;
+    }
+
+    container.innerHTML =
+      '<div class="table-header">'
+      + '<span>BUSINESS</span><span>PHONE</span>'
+      + '<span>EMAIL</span><span>REVIEWS</span>'
+      + '<span>SCORE</span><span>STATUS</span><span></span>'
+      + '</div>'
+      + hotLeads.map(l => renderLeadRow(l)).join('');
+
+    // By type chart
+    const typeEl = document.getElementById('by-type-chart');
+    typeEl.innerHTML = Object.entries(stats.by_type || {}).map(([type, count]) => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="font-size:12px;color:var(--text2);width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${type || 'Unknown'}</div>
+        <div style="flex:1;height:4px;background:var(--border2);border-radius:2px;">
+          <div style="height:100%;background:var(--accent);border-radius:2px;width:${Math.min(100, count * 10)}%"></div>
+        </div>
+        <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text3)">${count}</div>
+      </div>
+    `).join('');
+
+    const analytics = await fetch(`${API}/campaign-stats`).then(r => r.json());
+    const analyticsCards = document.getElementById('campaign-analytics-cards');
+    if (analyticsCards) {
+      analyticsCards.innerHTML =
+        '<div class="analytics-card"><div class="analytics-label">Emails Sent</div><div class="analytics-value">' + (analytics.emails_sent || 0) + '</div></div>' +
+        '<div class="analytics-card"><div class="analytics-label">WhatsApp Sent</div><div class="analytics-value">' + (analytics.whatsapp_sent || 0) + '</div></div>' +
+        '<div class="analytics-card"><div class="analytics-label">Replies</div><div class="analytics-value">' + (analytics.replies || 0) + '</div></div>' +
+        '<div class="analytics-card"><div class="analytics-label">Interested</div><div class="analytics-value">' + (analytics.interested || 0) + '</div></div>' +
+        '<div class="analytics-card"><div class="analytics-label">Booked</div><div class="analytics-value">' + (analytics.booked || 0) + '</div></div>' +
+        '<div class="analytics-card"><div class="analytics-label">Failure Rate</div><div class="analytics-value">' + (analytics.failure_rate || 0) + '%</div></div>';
+    }
+
+    loadPendingApprovals();
+
+  } catch(e) {
+    console.error(e);
+    const container = document.getElementById('hot-leads-list');
+    if (container) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-title">Error loading hot leads</div><div class="empty-sub">Check the API connection and refresh the dashboard.</div></div>';
+    }
+  }
+}
+
+let pendingApprovalSelection = [];
+
+function _getPendingApprovalRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.leads)) return payload.leads;
+  if (Array.isArray(payload.items)) return payload.items;
+  return [];
+}
+
+async function loadPendingApprovals() {
+  const container = document.getElementById('pending-approvals-list');
+  if (!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading approvals...</div>';
+  pendingApprovalSelection = [];
+  try {
+    const data = await fetch(`${API}/pending-approvals`).then(r => r.json());
+    const rows = _getPendingApprovalRows(data);
+    if (!rows.length) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-title">No approvals pending</div><div class="empty-sub">Generated outreach will appear here before sending.</div></div>';
+      return;
+    }
+    container.innerHTML = rows.map(function(lead) {
+      const id = lead.id;
+      const name = lead.name || 'Unnamed lead';
+      const type = lead.business_type || 'Unknown';
+      const status = lead.status || 'pending_review';
+      const score = lead.score || 0;
+      const email = lead.email || 'No email';
+      const phone = lead.phone || 'No phone';
+      return (
+        '<div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--border);">' +
+          '<label style="display:flex;gap:10px;align-items:flex-start;flex:1;cursor:pointer;">' +
+            '<input type="checkbox" data-pending-id="' + id + '" onchange="togglePendingSelection(' + id + ', this.checked)" style="margin-top:4px;width:16px;height:16px;accent-color:var(--accent)">' +
+            '<div style="flex:1;">' +
+              '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+                '<div style="font-weight:600;color:var(--text);">' + name + '</div>' +
+                '<span class="status-badge">' + status + '</span>' +
+                '<span style="font-size:11px;color:var(--text3);font-family:\'DM Mono\',monospace;">Score ' + score + '</span>' +
+              '</div>' +
+              '<div style="font-size:12px;color:var(--text3);margin-top:4px;">' + type + ' · ' + phone + ' · ' + email + '</div>' +
+            '</div>' +
+          '</label>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+            '<button class="btn btn-primary btn-sm" onclick="approvePendingLead(' + id + ')">Approve</button>' +
+            '<button class="btn btn-outline btn-sm" onclick="pausePendingLead(' + id + ')">Pause</button>' +
+            '<button class="btn btn-ghost btn-sm" onclick="openLead(' + id + ')">Open</button>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-title">Error loading approvals</div><div class="empty-sub">Check the API connection and refresh the dashboard.</div></div>';
+  }
+}
+
+function togglePendingSelection(id, checked) {
+  id = Number(id);
+  if (checked) {
+    if (!pendingApprovalSelection.includes(id)) pendingApprovalSelection.push(id);
+  } else {
+    pendingApprovalSelection = pendingApprovalSelection.filter(x => x !== id);
+  }
+}
+
+async function approvePendingLead(id, refresh = true) {
+  const res = await fetch(`${API}/approve-outreach/${id}`, { method: 'POST' }).then(r => r.json());
+  if (res.success) {
+    toast('Lead approved', '✅');
+    if (refresh) {
+      await loadDashboard();
+      await loadPendingApprovals();
+    }
+  } else {
+    toast(res.detail || res.error || 'Approval failed', '⚠️');
+  }
+}
+
+async function pausePendingLead(id, refresh = true) {
+  const res = await fetch(`${API}/pause-lead/${id}`, { method: 'POST' }).then(r => r.json());
+  if (res.success) {
+    toast('Lead paused', '⏸');
+    if (refresh) {
+      await loadDashboard();
+      await loadPendingApprovals();
+    }
+  } else {
+    toast(res.detail || res.error || 'Pause failed', '⚠️');
+  }
+}
+
+async function bulkApprovePending() {
+  if (!pendingApprovalSelection.length) {
+    toast('Select one or more leads first', 'ℹ️');
+    return;
+  }
+  for (const id of pendingApprovalSelection.slice()) {
+    await approvePendingLead(id, false);
+  }
+  await loadDashboard();
+  await loadPendingApprovals();
+}
+
+async function bulkPausePending() {
+  if (!pendingApprovalSelection.length) {
+    toast('Select one or more leads first', 'ℹ️');
+    return;
+  }
+  for (const id of pendingApprovalSelection.slice()) {
+    await pausePendingLead(id, false);
+  }
+  await loadDashboard();
+  await loadPendingApprovals();
+}
+
+// ─────────────────────────────────────────────
+// LEADS
+// ─────────────────────────────────────────────
+async function loadLeads() {
+  const container = document.getElementById('leads-list');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+  try {
+    const params = new URLSearchParams({ limit: 200, offset: 0 });
+    if (currentFilter !== 'all') params.append('status', currentFilter);
+    if (searchQuery) params.append('search', searchQuery);
+
+    const res = await fetch(`${API}/leads?${params}`).then(r => r.json());
+    allLeads = res.leads;
+
+    if (allLeads.length === 0) {
+      container.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <div class="empty-title">No leads found</div>
+        <div class="empty-sub">Try a different filter or import leads first</div>
+      </div>`;
+      return;
+    }
+
+    container.innerHTML = allLeads.map(l => renderLeadRow(l)).join('');
+  } catch(e) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-title">Error loading leads</div></div>`;
+  }
+}
+
+function renderLeadRow(l) {
+  var sc = l.score >= 60 ? 'var(--green)' : l.score >= 40 ? 'var(--yellow)' : 'var(--text3)';
+  var em = l.email ? '&#10003; ' + l.email : '&mdash;';
+  var emColor = l.email ? 'color:var(--green)' : 'color:var(--text3)';
+  return [
+    '<div class="lead-row" onclick="openLead(' + l.id + ')">',
+    '<div>',
+    '<div class="lead-name">' + (l.name||'') + '</div>',
+    '<div class="lead-type">' + (l.business_type||'') + '</div>',
+    '</div>',
+    '<div class="lead-phone">' + (l.phone||'&mdash;') + '</div>',
+    '<div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' + emColor + '">' + em + '</div>',
+    '<div style="font-size:12px;color:var(--text2)">' + (l.reviews||0) + '</div>',
+    '<div class="score-bar">',
+    '<span class="score-num" style="color:' + sc + '">' + l.score + '</span>',
+    '<div class="score-track"><div class="score-fill" style="width:' + l.score + '%"></div></div>',
+    '</div>',
+    '<div><span class="badge badge-' + l.status + '">' + l.status + '</span></div>',
+    '<div class="row-actions">',
+    '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();quickContact(' + l.id + ')">&#128203;</button>',
+    '</div>',
+    '</div>'
+  ].join('');
+}
+
+function filterLeads(status, el) {
+  currentFilter = status;
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  loadLeads();
+}
+
+let searchTimer;
+function searchLeads(q) {
+  searchQuery = q;
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadLeads, 300);
+}
+
+// ─────────────────────────────────────────────
+// PIPELINE
+// ─────────────────────────────────────────────
+async function loadPipeline() {
+  const res = await fetch(`${API}/leads?limit=200`).then(r => r.json());
+  const leads = res.leads;
+  const statuses = ['new', 'pending_review', 'approved', 'paused', 'contacted', 'interested', 'booked', 'converted', 'declined'];
+  const labels = {
+    new: '🆕 New',
+    pending_review: '⏳ Review',
+    approved: '✅ Approved',
+    paused: '⏸ Paused',
+    contacted: '📨 Contacted',
+    interested: '💡 Interested',
+    booked: '📅 Booked',
+    converted: '🏁 Converted',
+    declined: '❌ Declined'
+  };
+  const colors = {
+    new: 'var(--accent2)',
+    pending_review: 'var(--yellow)',
+    approved: 'var(--green)',
+    paused: '#94a3b8',
+    contacted: 'var(--yellow)',
+    interested: 'var(--green)',
+    booked: '#2dd4bf',
+    converted: 'var(--green)',
+    declined: 'var(--red)'
+  };
+
+  document.getElementById('pipeline-board').innerHTML = statuses.map(s => {
+    const cols = leads.filter(l => l.status === s);
+    return `
+      <div class="pipeline-col">
+        <div class="pipeline-col-header" style="color:${colors[s]}">
+          <span>${labels[s]}</span>
+          <span>${cols.length}</span>
+        </div>
+        ${cols.length === 0 ? '<div style="color:var(--text3);font-size:12px;text-align:center;margin-top:20px">Empty</div>' : ''}
+        ${cols.map(l => `
+          <div class="pipeline-card" onclick="openLead(${l.id})">
+            <div class="pipeline-card-name">${l.name}</div>
+            <div class="pipeline-card-type">${l.business_type || '—'} · Score: ${l.score}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────
+// FOLLOWUPS
+// ─────────────────────────────────────────────
+async function loadFollowups() {
+  const container = document.getElementById('followups-list');
+  try {
+    const res = await fetch(`${API}/leads?status=contacted&limit=50`).then(r => r.json());
+    const leads = res.leads;
+    if (leads.length === 0) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">🎉</div><div class="empty-title">No follow-ups pending</div></div>`;
+      return;
+    }
+    container.innerHTML = leads.map(l => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-weight:500;font-size:13.5px">${l.name}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">${l.business_type || ''} · ${l.phone || 'No phone'}</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline btn-sm" onclick="openLead(${l.id})">View</button>
+          <button class="btn btn-primary btn-sm" onclick="scheduleFollowupFor(${l.id})">🔔 Follow-up</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {}
+}
+
+// ─────────────────────────────────────────────
+// SETTINGS
+// ─────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const s = await fetch(`${API}/settings`).then(r => r.json());
+    document.getElementById('s-email').value = s.email_user || '';
+    document.getElementById('s-pass').value = s.email_pass && s.email_pass !== '••••••••' ? s.email_pass : '';
+    document.getElementById('s-name').value = s.sender_name || '';
+    document.getElementById('s-days').value = s.auto_followup_days || 3;
+    document.getElementById('s-auto-seq').checked = s.auto_sequence_enabled !== 'false';
+    document.getElementById('s-auto-send').checked = s.auto_send_enabled === 'true';
+    document.getElementById('s-wa-phone-id').value = s.wa_phone_id || '';
+    document.getElementById('s-wa-token').value = s.wa_token || '';
+    document.getElementById('s-max-emails').value = s.max_emails_per_day || 50;
+    document.getElementById('s-max-wa').value = s.max_whatsapp_per_day || 20;
+    document.getElementById('s-delay-min').value = s.random_delay_min || 0;
+    document.getElementById('s-delay-max').value = s.random_delay_max || 0;
+    document.getElementById('s-office-hours').checked = s.office_hours_only !== 'false';
+    document.getElementById('s-pause-failures').checked = s.pause_on_failures !== 'false';
+    // Check WA status
+    const waStatus = await fetch(`${API}/whatsapp/status`).then(r => r.json());
+    updateWAStatusBanner(waStatus);
+    await loadSchedulerStatus();
+  } catch(e) {}
+}
+
+var schedulerJobsCache = [];
+
+function schedulerDefaultJob() {
+  return { location: 'Hyderabad', category: 'Real Estate', leads: 20, time: '09:00', enabled: true };
+}
+
+function schedulerEscape(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function schedulerNormalizeJob(job) {
+  return {
+    location: (job && job.location ? String(job.location) : '').trim() || 'Hyderabad',
+    category: (job && job.category ? String(job.category) : '').trim() || 'Real Estate',
+    leads: Math.max(1, parseInt(job && job.leads ? job.leads : 20, 10) || 20),
+    time: (job && job.time ? String(job.time) : '09:00').trim() || '09:00',
+    enabled: job && job.enabled === false ? false : true,
+  };
+}
+
+function schedulerRenderJobs(jobs) {
+  var list = document.getElementById('sched-jobs-list');
+  if (!list) return;
+  schedulerJobsCache = (jobs && jobs.length ? jobs : [schedulerDefaultJob()]).map(schedulerNormalizeJob);
+  list.innerHTML = schedulerJobsCache.map(function(job, index) {
+    return [
+      '<div class="sched-job-row" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;display:grid;grid-template-columns:1.2fr 1.2fr 0.6fr 0.6fr auto;gap:10px;align-items:end;">',
+      '<div>',
+      '<div class="field-label">Location</div>',
+      '<input class="field-value sched-job-location" value="' + schedulerEscape(job.location) + '" style="width:100%;border:1px solid var(--border2);outline:none;">',
+      '</div>',
+      '<div>',
+      '<div class="field-label">Category</div>',
+      '<input class="field-value sched-job-category" value="' + schedulerEscape(job.category) + '" style="width:100%;border:1px solid var(--border2);outline:none;">',
+      '</div>',
+      '<div>',
+      '<div class="field-label">Leads</div>',
+      '<input class="field-value sched-job-leads" type="number" min="1" max="200" value="' + schedulerEscape(job.leads) + '" style="width:100%;border:1px solid var(--border2);outline:none;">',
+      '</div>',
+      '<div>',
+      '<div class="field-label">Time</div>',
+      '<input class="field-value sched-job-time" placeholder="09:00" value="' + schedulerEscape(job.time) + '" style="width:100%;border:1px solid var(--border2);outline:none;">',
+      '</div>',
+      '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">',
+      '<label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px;">',
+      '<input class="sched-job-enabled" type="checkbox"' + (job.enabled ? ' checked' : '') + '>',
+      'Active',
+      '</label>',
+      '<button class="btn btn-ghost btn-sm" onclick="removeSchedulerJobRow(' + index + ')">Remove</button>',
+      '</div>',
+      '</div>'
+    ].join('');
+  }).join('');
+}
+
+function addSchedulerJobRow(job) {
+  schedulerJobsCache.push(schedulerNormalizeJob(job || schedulerDefaultJob()));
+  schedulerRenderJobs(schedulerJobsCache);
+}
+
+function removeSchedulerJobRow(index) {
+  schedulerJobsCache.splice(index, 1);
+  schedulerRenderJobs(schedulerJobsCache);
+}
+
+function readSchedulerJobsFromUI() {
+  var list = document.getElementById('sched-jobs-list');
+  if (!list) return [];
+  var rows = list.querySelectorAll('.sched-job-row');
+  var jobs = [];
+  rows.forEach(function(row) {
+    var locationEl = row.querySelector('.sched-job-location');
+    var categoryEl = row.querySelector('.sched-job-category');
+    var leadsEl = row.querySelector('.sched-job-leads');
+    var timeEl = row.querySelector('.sched-job-time');
+    var enabledEl = row.querySelector('.sched-job-enabled');
+    jobs.push(schedulerNormalizeJob({
+      location: locationEl ? locationEl.value : '',
+      category: categoryEl ? categoryEl.value : '',
+      leads: leadsEl ? leadsEl.value : 20,
+      time: timeEl ? timeEl.value : '09:00',
+      enabled: enabledEl ? enabledEl.checked : true,
+    }));
+  });
+  return jobs;
+}
+
+async function loadSchedulerStatus() {
+  try {
+    const s = await fetch(`${API}/scheduler/status`).then(r => r.json());
+    document.getElementById('sched-enabled').checked = !!s.enabled;
+    document.getElementById('sched-auto-send').checked = !!s.auto_send_enabled;
+    if (s.safety) {
+      document.getElementById('s-max-emails').value = s.safety.max_emails_per_day || 50;
+      document.getElementById('s-max-wa').value = s.safety.max_whatsapp_per_day || 20;
+      document.getElementById('s-delay-min').value = s.safety.random_delay_min || 0;
+      document.getElementById('s-delay-max').value = s.safety.random_delay_max || 0;
+      document.getElementById('s-office-hours').checked = !!s.safety.office_hours_only;
+      document.getElementById('s-pause-failures').checked = !!s.safety.pause_on_failures;
+    }
+    schedulerRenderJobs(s.jobs || []);
+    document.getElementById('sched-last-run').textContent = s.last_run || '—';
+    document.getElementById('sched-next-run').textContent = s.next_run || '—';
+    document.getElementById('sched-last-status').textContent = s.last_status || '—';
+
+    const summaryEl = document.getElementById('sched-summary');
+    if (s.last_result) {
+      try {
+        const parsed = JSON.parse(s.last_result);
+        const summary = parsed.summary || {};
+        summaryEl.textContent = 'Imported ' + (summary.imported || 0) + ', emailed ' + (summary.emails_sent || 0) + ', follow-ups ' + (summary.followups_sent || 0);
+      } catch (_) {
+        summaryEl.textContent = 'See raw result in backend logs';
+      }
+    } else {
+      summaryEl.textContent = '—';
+    }
+
+    const banner = document.getElementById('scheduler-status-banner');
+    if (banner) {
+      banner.style.display = 'block';
+      banner.style.background = s.running ? '#f9731615' : '#22d3a520';
+      banner.style.border = s.running ? '1px solid #f9731630' : '1px solid #22d3a540';
+      banner.style.color = s.running ? 'var(--orange)' : 'var(--green)';
+      banner.textContent = s.running ? 'Scheduler is running a job right now' : 'Scheduler ready · next run ' + (s.next_run || '—');
+    }
+  } catch(e) {
+    console.error('loadSchedulerStatus error', e);
+  }
+}
+
+async function saveSchedulerConfig() {
+  const jobs = readSchedulerJobsFromUI();
+  const payload = {
+    enabled: document.getElementById('sched-enabled').checked,
+    auto_send_enabled: document.getElementById('sched-auto-send').checked,
+    jobs: jobs,
+  };
+  await fetch(`${API}/scheduler/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  toast('Scheduler saved', '⏰');
+  await loadSchedulerStatus();
+}
+
+async function runSchedulerNow() {
+  const btn = document.getElementById('sched-run-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Running...';
+  try {
+    const res = await fetch(`${API}/scheduler/run-now`, { method: 'POST' }).then(r => r.json());
+    if (res.success) {
+      toast('Scheduler job completed', '✅');
+    } else {
+      toast(res.message || 'Scheduler did not start', '⚠️');
+    }
+    await loadSchedulerStatus();
+  } catch (e) {
+    toast('Scheduler run failed', '❌');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Now';
+  }
+}
+
+function updateWAStatusBanner(status) {
+  const banner = document.getElementById('wa-status-banner');
+  if (!banner) return;
+  if (status.configured) {
+    banner.style.display = 'block';
+    banner.style.background = '#22d3a520';
+    banner.style.border = '1px solid #22d3a540';
+    banner.style.color = 'var(--green)';
+    banner.textContent = '✅ WhatsApp configured — ready to send';
+  } else {
+    banner.style.display = 'block';
+    banner.style.background = '#f9731615';
+    banner.style.border = '1px solid #f9731630';
+    banner.style.color = 'var(--orange)';
+    banner.textContent = `⚠️ Not configured — missing: ${!status.has_phone_id ? 'Phone ID ' : ''}${!status.has_token ? 'Token' : ''}`;
+  }
+}
+
+async function verifyWhatsApp() {
+  toast('Verifying WhatsApp connection...', '📱');
+  try {
+    const res = await fetch(`${API}/whatsapp/verify`).then(r => r.json());
+    if (res.valid) {
+      toast(`✅ Connected: ${res.display_name || res.verified_name || 'WhatsApp Business'}`, '📱');
+      updateWAStatusBanner({configured: true});
+    } else {
+      toast(`❌ Failed: ${res.error}`, '❌');
+    }
+  } catch(e) { toast('Verification failed', '❌'); }
+}
+
+async function testEmail() {
+  toast('Sending test email...', '📧');
+  try {
+    const res = await fetch(`${API}/test-email`, { method: 'POST' }).then(r => r.json());
+    toast(res.message, '✅');
+  } catch(e) { toast('Test failed — check email config', '❌'); }
+}
+
+async function loadEmailQueue() {
+  try {
+    const res = await fetch(`${API}/email-queue`).then(r => r.json());
+    const el = document.getElementById('email-queue-list');
+    if (!res.queue.length) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">No emails in queue</div>';
+      return;
+    }
+    el.innerHTML = res.queue.map(q => {
+      const parts = (q.message || '').split('|');
+      const toEmail = parts[1] || '—';
+      const subject = parts[2] || q.message?.substring(0,50) || '—';
+      const scheduled = new Date(q.scheduled_at).toLocaleString('en-IN', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+      const statusColor = q.status === 'sent' ? 'var(--green)' : q.status === 'pending' ? 'var(--yellow)' : q.status?.startsWith('failed') ? 'var(--red)' : 'var(--text3)';
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);font-size:12.5px;">
+        <div style="flex:1;overflow:hidden;">
+          <div style="font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${q.lead_name}</div>
+          <div style="color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${subject}</div>
+        </div>
+        <div style="color:var(--text3);white-space:nowrap;">${scheduled}</div>
+        <div style="color:${statusColor};font-family:'DM Mono',monospace;font-size:11px;">${q.status}</div>
+      </div>`;
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function launchSequence() {
+  const email = document.getElementById('modal-email-input').value;
+  if (!email) { toast('Enter their email address first', '⚠️'); return; }
+  const lead = await fetch(`${API}/leads/${currentLeadId}`).then(r => r.json());
+  if (['new', 'pending_review', 'paused'].includes(lead.status)) {
+    toast('Approve the lead before launching the sequence', '⚠️');
+    return;
+  }
+  const res = await fetch(`${API}/send-sequence/${currentLeadId}?to_email=${encodeURIComponent(email)}`, { method: 'POST' }).then(r => r.json());
+  toast(res.message, '🚀');
+}
+
+async function saveSetting(key, value) {
+  await fetch(`${API}/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, value })
+  });
+}
+
+// ─────────────────────────────────────────────
+// LEAD MODAL
+// ─────────────────────────────────────────────
+function safeSet(id, val, isInput) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (isInput) el.value = val || '';
+  else el.textContent = val || '—';
+}
+
+function populateLeadModal(lead) {
+  safeSet('modal-name', lead.name);
+  safeSet('modal-type', lead.business_type);
+  safeSet('modal-phone', lead.phone);
+  safeSet('modal-score', (lead.reviews || 0) + ' reviews · Score ' + (lead.score || 0));
+  safeSet('modal-website', lead.website);
+  safeSet('modal-address', lead.address);
+  safeSet('modal-whatsapp', lead.whatsapp_message || 'No message generated yet');
+  safeSet('modal-email-input', lead.email, true);
+  safeSet('modal-email-source', lead.email ? (lead.email_source || 'scraped') : '—');
+  safeSet('modal-email-subject', lead.email_subject);
+  safeSet('modal-email-body', lead.email_body || 'No email generated');
+  safeSet('modal-notes', lead.notes, true);
+  var st = document.getElementById('modal-status');
+  if (st) st.value = lead.status || 'new';
+  document.getElementById('lead-modal').classList.add('open');
+  loadLeadTimeline(lead.id);
+}
+
+function renderTimelineItem(item) {
+  var icon = item.icon || '•';
+  var title = item.title || item.type || 'Activity';
+  var preview = item.preview || item.content || '';
+  var createdAt = item.created_at ? new Date(item.created_at).toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  }) : '—';
+  var channel = item.channel || 'system';
+  return [
+    '<div class="timeline-item">',
+    '<div class="timeline-icon">' + icon + '</div>',
+    '<div class="timeline-main">',
+    '<div class="timeline-title">' + title + '</div>',
+    '<div class="timeline-preview">' + (preview || '—') + '</div>',
+    '</div>',
+    '<div class="timeline-meta">',
+    '<span class="badge badge-' + (item.status || 'new') + '">' + (item.status || 'logged') + '</span>',
+    '<div class="timeline-time">' + createdAt + '</div>',
+    '<div class="timeline-channel">' + channel + '</div>',
+    '</div>',
+    '</div>'
+  ].join('');
+}
+
+async function loadLeadTimeline(leadId) {
+  const list = document.getElementById('lead-timeline-list');
+  if (!list || !leadId) return;
+  list.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:16px;text-align:center;">Loading timeline...</div>';
+  try {
+    const res = await fetch(API + '/lead-timeline/' + leadId).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+    const timeline = (res.timeline || []).slice().reverse();
+    document.getElementById('timeline-count').textContent = timeline.length + ' events';
+    if (!timeline.length) {
+      list.innerHTML = '<div class="empty-state"><div class="empty-title">No timeline yet</div><div class="empty-sub">Send, reply, or schedule a follow-up to populate this feed.</div></div>';
+      return;
+    }
+    list.innerHTML = timeline.map(renderTimelineItem).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-title">Timeline unavailable</div><div class="empty-sub">Check the backend logs and refresh.</div></div>';
+  }
+}
+
+async function openLead(id) {
+  currentLeadId = id;
+  try {
+    const lead = await fetch(API + '/leads/' + id).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+    populateLeadModal(lead);
+  } catch(e) {
+    console.error('openLead error:', e);
+    toast('Error loading lead: ' + e.message, '❌');
+  }
+}
+
+function closeModal() {
+  document.getElementById('lead-modal').classList.remove('open');
+  currentLeadId = null;
+}
+
+async function updateStatus() {
+  const status = document.getElementById('modal-status').value;
+  await fetch(`${API}/leads/${currentLeadId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  toast(`Status updated to ${status}`, '✅');
+  await loadLeadTimeline(currentLeadId);
+  loadDashboard();
+}
+
+async function approveOutreach() {
+  if (!currentLeadId) return;
+  const res = await fetch(`${API}/approve-outreach/${currentLeadId}`, { method: 'POST' }).then(r => r.json());
+  if (res.success) {
+    document.getElementById('modal-status').value = 'approved';
+    toast('Outreach approved', '✅');
+    await loadLeadTimeline(currentLeadId);
+    loadDashboard();
+  } else {
+    toast(res.detail || res.error || 'Approval failed', '⚠️');
+  }
+}
+
+async function pauseOutreach() {
+  if (!currentLeadId) return;
+  const res = await fetch(`${API}/pause-lead/${currentLeadId}`, { method: 'POST' }).then(r => r.json());
+  if (res.success) {
+    document.getElementById('modal-status').value = 'paused';
+    toast('Lead paused', '⏸');
+    await loadLeadTimeline(currentLeadId);
+    loadDashboard();
+  } else {
+    toast(res.detail || res.error || 'Pause failed', '⚠️');
+  }
+}
+
+async function markContacted() {
+  await fetch(`${API}/activities`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lead_id: currentLeadId, type: 'outreach', channel: 'whatsapp', content: 'WhatsApp message sent' })
+  });
+  document.getElementById('modal-status').value = 'contacted';
+  toast('Marked as contacted ✓', '📱');
+}
+
+function copyWhatsApp() {
+  const msg = document.getElementById('modal-whatsapp').textContent;
+  navigator.clipboard.writeText(msg);
+  toast('WhatsApp message copied!', '📋');
+}
+
+async function scheduleFollowup() {
+  const lead = await fetch(`${API}/leads/${currentLeadId}`).then(r => r.json());
+  if (['new', 'pending_review', 'paused'].includes(lead.status)) {
+    toast('Approve the lead before scheduling follow-ups', '⚠️');
+    return;
+  }
+  const res = await fetch(`${API}/schedule-followup/${currentLeadId}?days=3`, { method: 'POST' });
+  const data = await res.json();
+  toast('Email follow-up scheduled for 3 days', '🔔');
+}
+
+async function sendWhatsApp() {
+  if (!currentLeadId) return;
+
+  const lead = await fetch(`${API}/leads/${currentLeadId}`).then(r => r.json());
+  if (['new', 'pending_review', 'paused'].includes(lead.status)) {
+    toast('Approve the lead before sending outreach', '⚠️');
+    return;
+  }
+  const phone = lead.phone;
+  const message = document.getElementById('modal-whatsapp').textContent;
+
+  if (!phone || phone === '—') {
+    toast('No phone number for this lead', '⚠️');
+    return;
+  }
+  if (!message || message === '—' || message.includes('No message')) {
+    toast('No WhatsApp message generated yet', '⚠️');
+    return;
+  }
+
+  const btn = document.getElementById('wa-send-btn');
+  const statusEl = document.getElementById('wa-send-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ Sending...';
+  statusEl.textContent = '';
+
+  try {
+    const res = await fetch(`${API}/whatsapp/send-now`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_id: currentLeadId, phone, message })
+    }).then(r => r.json());
+
+    if (res.success) {
+      btn.textContent = '✅ Sent!';
+      btn.style.background = 'var(--green)';
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = `✅ Delivered to ${phone} · Message ID: ${res.message_id || '—'}`;
+      document.getElementById('modal-status').value = 'contacted';
+      await updateStatus();
+      await loadLeadTimeline(currentLeadId);
+      toast('WhatsApp sent successfully!', '📱');
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '📱 Send WhatsApp';
+        btn.style.background = '';
+      }, 3000);
+    } else {
+      btn.disabled = false;
+      btn.textContent = '📱 Send WhatsApp';
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = `❌ Failed: ${res.error}`;
+      toast(`Send failed: ${res.error}`, '❌');
+    }
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = '📱 Send WhatsApp';
+    toast('Connection error', '❌');
+  }
+}
+
+async function scheduleWAFollowup() {
+  if (!currentLeadId) return;
+  const lead = await fetch(`${API}/leads/${currentLeadId}`).then(r => r.json());
+  if (['new', 'pending_review', 'paused'].includes(lead.status)) {
+    toast('Approve the lead before scheduling follow-ups', '⚠️');
+    return;
+  }
+  if (!lead.phone || lead.phone === '—') {
+    toast('No phone number for this lead', '⚠️');
+    return;
+  }
+  const res = await fetch(`${API}/whatsapp/schedule-followup/${currentLeadId}?phone=${encodeURIComponent(lead.phone)}&days=3`, {
+    method: 'POST'
+  }).then(r => r.json());
+  if (res.success) {
+    toast('WhatsApp follow-up scheduled for 3 days', '🔔');
+  } else {
+    toast(res.error || 'Failed to schedule', '❌');
+  }
+}
+
+async function scheduleFollowupFor(id) {
+  await fetch(`${API}/schedule-followup/${id}?days=3`, { method: 'POST' });
+  toast('Follow-up scheduled!', '🔔');
+}
+
+async function sendEmail() {
+  const email = document.getElementById('modal-email-input').value;
+  if (!email) { toast('Enter their email address', '⚠️'); return; }
+  const lead = await fetch(`${API}/leads/${currentLeadId}`).then(r => r.json());
+  if (['new', 'pending_review', 'paused'].includes(lead.status)) {
+    toast('Approve the lead before sending outreach', '⚠️');
+    return;
+  }
+  const subject = document.getElementById('modal-email-subject').textContent;
+  const body = document.getElementById('modal-email-body').textContent;
+  await fetch(`${API}/send-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lead_id: currentLeadId, to_email: email, subject, body })
+  });
+  toast('Email queued for sending!', '✉️');
+  loadLeadTimeline(currentLeadId);
+}
+
+async function saveNotes() {
+  const notes = document.getElementById('modal-notes').value;
+  await fetch(API + '/leads/' + currentLeadId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes })
+  });
+}
+
+async function generateMessage() {
+  if (!currentLeadId) return;
+  const btn = document.getElementById('gen-msg-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating...';
+  toast('Generating personalized messages with Claude...', '✨');
+
+  try {
+    const result = await fetch(API + '/enrich-now/' + currentLeadId, {
+      method: 'POST'
+    }).then(r => r.json());
+
+    if (result.success && !result.skipped) {
+      safeSet('modal-whatsapp', result.whatsapp_message || '—');
+      safeSet('modal-email-subject', result.email_subject || '—');
+      safeSet('modal-email-body', result.email_body || '—');
+      document.getElementById('modal-status').value = 'pending_review';
+      btn.textContent = '✅ Generated!';
+      btn.style.background = 'var(--green)';
+      toast('Messages generated!', '✅');
+      await loadLeadTimeline(currentLeadId);
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '✨ Generate';
+        btn.style.background = '';
+      }, 3000);
+    } else if (result.skipped) {
+      toast('Already has messages — click ✨ Generate again to regenerate', 'ℹ️');
+      btn.disabled = false;
+      btn.textContent = '✨ Regenerate';
+    } else {
+      toast('Generation failed: ' + (result.error || 'Unknown error'), '❌');
+      btn.disabled = false;
+      btn.textContent = '✨ Generate';
+    }
+  } catch(e) {
+    toast('Error: ' + e.message, '❌');
+    btn.disabled = false;
+    btn.textContent = '✨ Generate';
+  }
+}
+
+async function deleteLead() {
+  if (!confirm('Delete this lead?')) return;
+  await fetch(`${API}/leads/${currentLeadId}`, { method: 'DELETE' });
+  closeModal();
+  toast('Lead deleted', '🗑️');
+  loadLeads();
+}
+
+function quickContact(id) {
+  openLead(id);
+}
+
+// ─────────────────────────────────────────────
+// IMPORT
+// ─────────────────────────────────────────────
+async function importLeads() {
+  toast('Importing leads from Excel...', '⏳');
+  try {
+    const res = await fetch(`${API}/import-leads`, { method: 'POST' }).then(r => r.json());
+    toast(`Imported ${res.imported} leads (${res.skipped} duplicates skipped)`, '✅');
+    loadDashboard();
+    document.getElementById('nav-total').textContent = res.imported;
+  } catch(e) {
+    toast('Import failed. Make sure leads_enriched.xlsx exists in the backend folder', '❌');
+  }
+}
+
+function openAddLead() {
+  toast('Manual lead add — coming soon', '🛠️');
+}
+
+// ─────────────────────────────────────────────
+// TOAST
+// ─────────────────────────────────────────────
+let toastTimer;
+function toast(msg, icon = '✅') {
+  const el = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  document.getElementById('toast-icon').textContent = icon;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// Close modal on overlay click
+document.getElementById('lead-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// ─────────────────────────────────────────────
+// EMAIL FINDER
+// ─────────────────────────────────────────────
+async function findEmailForLead() {
+  if (!currentLeadId) return;
+  toast('🔍 Scraping their website for email...', '🔍');
+  try {
+    await fetch(`${API}/find-email/${currentLeadId}`, { method: 'POST' });
+    setTimeout(async () => {
+      const lead = await fetch(`${API}/leads/${currentLeadId}`).then(r => r.json());
+      if (lead.email) {
+        document.getElementById('modal-email-input').value = lead.email;
+        document.getElementById('modal-email-source').textContent = lead.email_source || 'scraped';
+        toast(`✅ Email found: ${lead.email}`, '📧');
+        loadLeads();
+      } else {
+        toast('No email found — enter manually', '⚠️');
+      }
+    }, 5000);
+  } catch(e) { toast('Search failed', '❌'); }
+}
+
+async function saveEmailManually() {
+  const email = document.getElementById('modal-email-input').value.trim();
+  if (!email || !email.includes('@')) { toast('Enter a valid email first', '⚠️'); return; }
+  await fetch(`${API}/leads/${currentLeadId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
+  });
+  document.getElementById('modal-email-source').textContent = 'manual';
+  toast(`Email saved: ${email}`, '💾');
+  loadLeads();
+}
+
+async function enrichAllLeads() {
+  const stats = await fetch(API + '/enrich-stats').then(r => r.json());
+  if (stats.not_enriched === 0) {
+    toast('All leads already have messages!', 'ℹ️');
+    return;
+  }
+  if (!confirm('Generate AI messages for ' + stats.not_enriched + ' leads?\nThis uses Claude API credits.')) return;
+  toast('✨ Enriching ' + stats.not_enriched + ' leads — this runs in background', '✨');
+  try {
+    const res = await fetch(API + '/enrich-batch', { method: 'POST' }).then(r => r.json());
+    toast(res.message, '✅');
+  } catch(e) { toast('Enrichment failed', '❌'); }
+}
+
+async function runBatchEmailFinder() {
+  if (!confirm('Find emails for all leads missing one? This may take a few minutes.')) return;
+  toast('🔍 Batch email finder started...', '🔍');
+  try {
+    const res = await fetch(`${API}/find-emails-batch`, { method: 'POST' }).then(r => r.json());
+    toast(res.message, '✅');
+    // Show stats after 30 seconds
+    setTimeout(async () => {
+      const stats = await fetch(`${API}/email-stats`).then(r => r.json());
+      toast(`Found emails for ${stats.with_email}/${stats.total_leads} leads (${stats.coverage_pct}%)`, '📧');
+      loadLeads();
+    }, 30000);
+  } catch(e) { toast('Batch finder failed', '❌'); }
+}
+
+
+// ─────────────────────────────────────────────
+// FIND LEADS — LOCATION AUTOCOMPLETE + SCRAPER
+// ─────────────────────────────────────────────
+
+const COUNTRIES = [
+  {code:'IN', name:'India', alt:['IND','INDIA','भारत']},
+  {code:'US', name:'United States', alt:['USA','US','UNITED STATES','AMERICA']},
+  {code:'GB', name:'United Kingdom', alt:['UK','GBR','BRITAIN','ENGLAND']},
+  {code:'AU', name:'Australia', alt:['AUS','AUSTRALIA','AUSSIE']},
+  {code:'CA', name:'Canada', alt:['CAN','CANADA']},
+  {code:'SG', name:'Singapore', alt:['SGP','SG']},
+  {code:'AE', name:'UAE', alt:['UAE','DUBAI','EMIRATES']},
+  {code:'NZ', name:'New Zealand', alt:['NZL','NZ']},
+];
+
+const STATES = {
+  'India': ['Telangana','Andhra Pradesh','Maharashtra','Karnataka','Tamil Nadu','Kerala',
+    'Delhi','Gujarat','Rajasthan','Uttar Pradesh','West Bengal','Punjab','Haryana',
+    'Madhya Pradesh','Bihar','Odisha','Assam','Jharkhand','Uttarakhand','Goa'],
+  'Australia': ['New South Wales','Victoria','Queensland','Western Australia',
+    'South Australia','Tasmania','ACT','Northern Territory'],
+  'United States': ['California','Texas','New York','Florida','Illinois','Pennsylvania',
+    'Ohio','Georgia','North Carolina','Michigan','Washington','Arizona'],
+  'United Kingdom': ['England','Scotland','Wales','Northern Ireland','London',
+    'Greater Manchester','West Midlands','Yorkshire'],
+};
+
+const SUBURBS = {
+  // India
+  'Telangana': ['Hyderabad','Secunderabad','Warangal','Nizamabad','Karimnagar','Banjara Hills','Jubilee Hills','Madhapur','Gachibowli','HITEC City','Kondapur','Kukatpally','LB Nagar','Dilsukhnagar','Ameerpet'],
+  'Andhra Pradesh': ['Visakhapatnam','Vijayawada','Guntur','Nellore','Kurnool','Rajahmundry','Tirupati','Kakinada','Kadapa','Anantapur'],
+  'Maharashtra': ['Mumbai','Pune','Nagpur','Nashik','Aurangabad','Thane','Navi Mumbai','Solapur','Kolhapur','Amravati'],
+  'Karnataka': ['Bangalore','Mysore','Hubli','Mangalore','Belgaum','Gulbarga','Davanagere','Shimoga','Tumkur','Bijapur'],
+  'Tamil Nadu': ['Chennai','Coimbatore','Madurai','Salem','Tiruchirappalli','Tirunelveli','Vellore','Erode','Thoothukudi','Dindigul'],
+  'Kerala': ['Kochi','Thiruvananthapuram','Kozhikode','Thrissur','Kollam','Kannur','Palakkad','Alappuzha','Malappuram','Kottayam'],
+  'Delhi': ['New Delhi','Connaught Place','Dwarka','Rohini','Saket','Laxmi Nagar','Janakpuri','Pitampura','Vasant Kunj','Karol Bagh'],
+  'Gujarat': ['Ahmedabad','Surat','Vadodara','Rajkot','Bhavnagar','Jamnagar','Gandhinagar','Anand','Morbi','Bharuch'],
+  'Rajasthan': ['Jaipur','Jodhpur','Udaipur','Kota','Ajmer','Bikaner','Alwar','Bhilwara','Sikar','Pali'],
+  'Uttar Pradesh': ['Lucknow','Kanpur','Agra','Varanasi','Meerut','Allahabad','Ghaziabad','Noida','Bareilly','Aligarh'],
+  'West Bengal': ['Kolkata','Howrah','Durgapur','Asansol','Siliguri','Bardhaman','Malda','Baharampur','Habra','Kharagpur'],
+  'Punjab': ['Ludhiana','Amritsar','Jalandhar','Patiala','Bathinda','Hoshiarpur','Mohali','Pathankot','Moga','Firozpur'],
+  'Haryana': ['Gurugram','Faridabad','Panipat','Ambala','Yamunanagar','Rohtak','Hisar','Karnal','Sonipat','Panchkula'],
+  'Madhya Pradesh': ['Bhopal','Indore','Gwalior','Jabalpur','Ujjain','Sagar','Satna','Rewa','Dewas','Ratlam'],
+  'Goa': ['Panaji','Margao','Vasco da Gama','Mapusa','Ponda','Bicholim','Curchorem','Sanquelim','Canacona','Quepem'],
+  // Australia
+  'New South Wales': ['Sydney','Newcastle','Wollongong','Parramatta','Penrith','Blacktown','Liverpool','Campbelltown','Gosford','Maitland'],
+  'Victoria': ['Melbourne','Geelong','Ballarat','Bendigo','Shepparton','Melton','Mildura','Wodonga','Warrnambool','Traralgon'],
+  'Queensland': ['Brisbane','Gold Coast','Sunshine Coast','Townsville','Cairns','Toowoomba','Rockhampton','Mackay','Bundaberg','Hervey Bay'],
+  'Western Australia': ['Perth','Fremantle','Mandurah','Bunbury','Geraldton','Albany','Kalgoorlie','Broome','Port Hedland','Karratha'],
+  'South Australia': ['Adelaide','Mount Gambier','Whyalla','Murray Bridge','Port Augusta','Port Pirie','Gawler','Port Lincoln','Victor Harbor','Naracoorte'],
+  // UK
+  'England': ['London','Manchester','Birmingham','Liverpool','Leeds','Sheffield','Bristol','Newcastle','Nottingham','Leicester'],
+  'Scotland': ['Edinburgh','Glasgow','Aberdeen','Dundee','Inverness','Perth','Stirling','Falkirk','Paisley','East Kilbride'],
+  'Wales': ['Cardiff','Swansea','Newport','Wrexham','Barry','Neath','Bridgend','Pontypridd','Llanelli','Caerphilly'],
+  // USA
+  'California': ['Los Angeles','San Francisco','San Diego','San Jose','Sacramento','Fresno','Oakland','Santa Ana','Anaheim','Riverside'],
+  'Texas': ['Houston','Dallas','San Antonio','Austin','Fort Worth','El Paso','Arlington','Corpus Christi','Plano','Lubbock'],
+  'New York': ['New York City','Buffalo','Rochester','Yonkers','Syracuse','Albany','New Rochelle','Mount Vernon','Schenectady','Utica'],
+  'Florida': ['Miami','Orlando','Tampa','Jacksonville','St. Petersburg','Hialeah','Tallahassee','Fort Lauderdale','Port St. Lucie','Cape Coral'],
+  'Illinois': ['Chicago','Aurora','Rockford','Joliet','Naperville','Springfield','Peoria','Elgin','Waukegan','Cicero'],
+};
+
+const CATEGORIES = [
+  { label: '🏠 Real Estate', value: 'real estate agents' },
+  { label: '🦷 Dental Clinics', value: 'dental clinics' },
+  { label: '🏋️ Gyms', value: 'gyms and fitness centers' },
+  { label: '💇 Salons', value: 'beauty salons' },
+  { label: '🏨 Hotels', value: 'hotels' },
+  { label: '🍽️ Restaurants', value: 'restaurants' },
+  { label: '📚 Coaching', value: 'coaching centres' },
+  { label: '⚖️ CA Firms', value: 'chartered accountants' },
+  { label: '🏥 Clinics', value: 'medical clinics' },
+  { label: '🎨 Interiors', value: 'interior designers' },
+  { label: '🔧 Plumbers', value: 'plumbers' },
+  { label: '📸 Photography', value: 'photographers' },
+];
+
+let selectedCategories = new Set();
+let scrapeInterval = null;
+let locData = { country: '', state: '', suburb: '' };
+
+function initFindLeads() {
+  renderCategoryChips();
+  // Auto-detect India as default
+  setTimeout(() => {
+    document.getElementById('loc-country').value = 'India';
+    locData.country = 'India';
+    document.getElementById('loc-state').value = 'Telangana';
+    locData.state = 'Telangana';
+    document.getElementById('loc-suburb').value = 'Hyderabad';
+    locData.suburb = 'Hyderabad';
+  }, 100);
+}
+
+function renderCategoryChips() {
+  const el = document.getElementById('category-chips');
+  el.innerHTML = CATEGORIES.map(c => `
+    <div class="cat-chip ${selectedCategories.has(c.value) ? 'active' : ''}"
+      onclick="toggleCategory('${c.value}', this)">
+      ${c.label}
+    </div>
+  `).join('');
+}
+
+function toggleCategory(value, el) {
+  if (selectedCategories.has(value)) {
+    selectedCategories.delete(value);
+    el.classList.remove('active');
+  } else {
+    selectedCategories.add(value);
+    el.classList.add('active');
+  }
+}
+
+function addCustomCategory() {
+  const input = document.getElementById('custom-category');
+  const val = input.value.trim();
+  if (!val) return;
+  selectedCategories.add(val);
+  const chip = document.createElement('div');
+  chip.className = 'cat-chip active';
+  chip.innerHTML = `${val} <span class="remove" onclick="this.parentElement.remove();selectedCategories.delete('${val}')">×</span>`;
+  document.getElementById('category-chips').appendChild(chip);
+  input.value = '';
+}
+
+// ── Smart Location Autocomplete ──
+
+function autocompleteLocation(type, val) {
+  const dd = document.getElementById(`dd-${type}`);
+  if (!val || val.length < 1) { dd.classList.remove('open'); return; }
+
+  const upper = val.toUpperCase().trim();
+  let options = [];
+
+  if (type === 'country') {
+    options = COUNTRIES.filter(c =>
+      c.name.toUpperCase().includes(upper) ||
+      c.code.includes(upper) ||
+      c.alt.some(a => a.includes(upper))
+    ).map(c => ({ display: `${c.name} <span style="color:var(--text3)">${c.code}</span>`, value: c.name }));
+  }
+  else if (type === 'state') {
+    const country = document.getElementById('loc-country').value.trim() || locData.country || 'India';
+    const list = STATES[country] || Object.values(STATES).flat();
+    options = list.filter(s => s.toUpperCase().includes(upper))
+      .map(s => ({ display: s, value: s }));
+    if (options.length < 3) fetchGooglePlaces(type, val, country);
+  }
+  else if (type === 'suburb') {
+    const state = document.getElementById('loc-state').value.trim() || locData.state || '';
+    let list = SUBURBS[state] || [];
+    if (!list.length) {
+      const stateKey = Object.keys(SUBURBS).find(k => k.toLowerCase().includes(state.toLowerCase()));
+      list = stateKey ? SUBURBS[stateKey] : Object.values(SUBURBS).flat();
+    }
+    options = list.filter(s => s.toUpperCase().includes(upper))
+      .map(s => ({ display: s, value: s }));
+    if (options.length < 3) fetchGooglePlaces(type, val, locData.country);
+  }
+
+  if (options.length === 0) { dd.classList.remove('open'); return; }
+
+  dd.innerHTML = options.slice(0, 8).map(o =>
+    `<div class="loc-option" onclick="selectLocation('${type}','${o.value}')">${o.display}</div>`
+  ).join('');
+  dd.classList.add('open');
+}
+
+async function fetchGooglePlaces(type, query, country) {
+  // Use Google Places Autocomplete via backend
+  try {
+    const res = await fetch(`${API}/autocomplete-location?query=${encodeURIComponent(query)}&country=${encodeURIComponent(country)}&type=${type}`).then(r => r.json());
+    if (res.suggestions && res.suggestions.length) {
+      const dd = document.getElementById(`dd-${type}`);
+      const existing = dd.querySelectorAll('.loc-option').length;
+      res.suggestions.forEach(s => {
+        const opt = document.createElement('div');
+        opt.className = 'loc-option';
+        opt.innerHTML = s;
+        opt.onclick = () => selectLocation(type, s.replace(/<[^>]*>/g,''));
+        dd.appendChild(opt);
+      });
+      if (existing + res.suggestions.length > 0) dd.classList.add('open');
+    }
+  } catch(e) {}
+}
+
+function showAllOptions(type) {
+  const dd = document.getElementById(`dd-${type}`);
+  let options = [];
+
+  if (type === 'country') {
+    options = COUNTRIES.map(c => ({
+      display: `${c.name} <span style="color:var(--text3);font-size:11px">${c.code}</span>`,
+      value: c.name
+    }));
+  } else if (type === 'state') {
+    // Always read live from input + locData
+    const country = document.getElementById('loc-country').value.trim() || locData.country || 'India';
+    locData.country = country;
+    const list = STATES[country] || STATES['India'];
+    options = list.map(s => ({ display: s, value: s }));
+  } else if (type === 'suburb') {
+    // Always read live from input + locData
+    const state = document.getElementById('loc-state').value.trim() || locData.state || '';
+    locData.state = state;
+    // Try exact match first, then partial
+    let list = SUBURBS[state] || [];
+    if (!list.length) {
+      // Try partial match
+      const stateKey = Object.keys(SUBURBS).find(k => k.toLowerCase().includes(state.toLowerCase()) || state.toLowerCase().includes(k.toLowerCase()));
+      list = stateKey ? SUBURBS[stateKey] : [];
+    }
+    if (!list.length) list = ['Please select a state first'];
+    options = list.map(s => ({ display: s, value: s }));
+  }
+
+  if (!options.length) return;
+  dd.innerHTML = options.map(o =>
+    `<div class="loc-option" onclick="selectLocation('${type}','${o.value}')">${o.display}</div>`
+  ).join('');
+  dd.classList.add('open');
+}
+
+function selectLocation(type, value) {
+  document.getElementById(`loc-${type}`).value = value;
+  document.getElementById(`dd-${type}`).classList.remove('open');
+  locData[type] = value;
+
+  if (type === 'country') {
+    locData.country = value;
+    document.getElementById('loc-state').value = '';
+    document.getElementById('loc-suburb').value = '';
+    locData.state = '';
+    locData.suburb = '';
+    setTimeout(() => {
+      document.getElementById('loc-state').focus();
+      showAllOptions('state');
+    }, 150);
+  }
+  if (type === 'state') {
+    locData.state = value;
+    document.getElementById('loc-suburb').value = '';
+    locData.suburb = '';
+    setTimeout(() => {
+      document.getElementById('loc-suburb').focus();
+      showAllOptions('suburb');
+    }, 150);
+  }
+  if (type === 'suburb') {
+    locData.suburb = value;
+  }
+}
+
+function handleLocKey(e, type) {
+  const dd = document.getElementById(`dd-${type}`);
+  if (e.key === 'Escape') { dd.classList.remove('open'); return; }
+  if (e.key === 'Enter') {
+    const first = dd.querySelector('.loc-option');
+    if (first) first.click();
+  }
+  // Update locData on blur
+  locData[type] = document.getElementById(`loc-${type}`).value;
+}
+
+// Close dropdowns on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.loc-dropdown') && !e.target.id?.startsWith('loc-')) {
+    document.querySelectorAll('.loc-dropdown').forEach(d => d.classList.remove('open'));
+    // Save current values
+    ['country','state','suburb'].forEach(t => {
+      locData[t] = document.getElementById(`loc-${t}`)?.value || locData[t];
+    });
+  }
+});
+
+// ── Scraper ──
+
+async function startScrape() {
+  // Validate
+  const country = document.getElementById('loc-country').value.trim();
+  const state = document.getElementById('loc-state').value.trim();
+  const suburb = document.getElementById('loc-suburb').value.trim();
+
+  if (!suburb) { toast('Enter a city or suburb first', '⚠️'); return; }
+  if (selectedCategories.size === 0) { toast('Select at least one category', '⚠️'); return; }
+
+  const maxResults = parseInt(document.getElementById('max-results').value);
+  const categories = [...selectedCategories];
+
+  // Update UI
+  document.getElementById('scrape-btn').disabled = true;
+  document.getElementById('scrape-btn').textContent = '⏳ Searching...';
+  document.getElementById('scrape-progress').style.display = 'block';
+  document.getElementById('progress-label').textContent = `Searching ${categories.length} categories in ${suburb}...`;
+  document.getElementById('progress-bar').style.width = '5%';
+
+  // Clear previous results
+  document.getElementById('found-leads-list').innerHTML = '<div class="loading"><div class="spinner"></div>Scraping live data...</div>';
+  document.getElementById('scrape-status-badge').textContent = 'Running...';
+
+  try {
+    const res = await fetch(`${API}/scrape-leads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ country, state, suburb, categories, max_per_query: maxResults })
+    }).then(r => r.json());
+
+    if (!res.success) {
+      toast('Scrape failed — check API key', '❌');
+      resetScrapeBtn();
+      return;
+    }
+
+    // Poll for completion
+    let attempts = 0;
+    const maxAttempts = 60; // 5 min timeout
+    let progress = 5;
+
+    scrapeInterval = setInterval(async () => {
+      attempts++;
+      progress = Math.min(90, 5 + (attempts / maxAttempts) * 85);
+      document.getElementById('progress-bar').style.width = progress + '%';
+
+      const status = await fetch(`${API}/scrape-status`).then(r => r.json());
+
+      if (status.result) {
+        clearInterval(scrapeInterval);
+        document.getElementById('progress-bar').style.width = '100%';
+        
+        const r = status.result;
+        document.getElementById('scrape-status-badge').textContent =
+          `✅ ${r.imported} imported · ${r.skipped} skipped · ${r.total} total`;
+        document.getElementById('progress-label').textContent =
+          `Done! Found ${r.total} businesses · ${r.imported} new leads added`;
+
+        // Show results
+        await showFoundLeads();
+        
+        // Show map
+        if (status.map_leads && status.map_leads.length > 0) {
+          showLeadsOnMap(status.map_leads, suburb, state, country);
+        }
+
+        resetScrapeBtn();
+        toast(`🎯 Found ${r.imported} new leads in ${suburb}!`, '✅');
+
+        // Clear the result so next scrape works
+        setTimeout(() => {
+          fetch(`${API}/settings`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({key: 'last_scrape_result', value: ''})
+          });
+        }, 3000);
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(scrapeInterval);
+        resetScrapeBtn();
+        toast('Scrape timed out — check results in All Leads', '⚠️');
+      }
+    }, 5000);
+
+  } catch(e) {
+    toast('Connection error — is the server running?', '❌');
+    resetScrapeBtn();
+  }
+}
+
+function resetScrapeBtn() {
+  const btn = document.getElementById('scrape-btn');
+  btn.disabled = false;
+  btn.textContent = '🚀 Find Leads';
+}
+
+async function showFoundLeads() {
+  const res = await fetch(`${API}/leads?limit=30&offset=0`).then(r => r.json());
+  const leads = res.leads.slice(0, 15);
+  const container = document.getElementById('found-leads-list');
+  document.getElementById('map-count').textContent = `${res.total} leads`;
+
+  if (!leads.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-title">No leads found</div></div>';
+    return;
+  }
+
+  container.innerHTML = leads.map(l => `
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;"
+      onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''"
+      onclick="openLeadFromFindPage(${l.id})">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div style="overflow:hidden;">
+          <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${l.name}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;">${l.business_type || ''}</div>
+        </div>
+        <span style="font-size:11px;font-family:'DM Mono',monospace;color:${l.score>=60?'var(--green)':l.score>=40?'var(--yellow)':'var(--text3)'};flex-shrink:0">${l.score}</span>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--text3);">
+        ${l.phone ? `<span>📞 ${l.phone}</span>` : ''}
+        ${l.email ? `<span style="color:var(--green)">✉ ${l.email}</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function showLeadsOnMap(leads, suburb, state, country) {
+  const mapPlaceholder = document.getElementById('map-placeholder');
+  const mapIframe = document.getElementById('map-iframe');
+
+  mapPlaceholder.style.display = 'none';
+  mapIframe.style.display = 'block';
+  mapIframe.style.border = 'none';
+  mapIframe.src = 'https://www.openstreetmap.org/export/embed.html?bbox=78.2,17.2,78.7,17.6&layer=mapnik&marker=17.3850,78.4867';
+  
+  buildOSMEmbed(suburb, state, country, leads.length);
+  document.getElementById('map-count').textContent = `${leads.length} leads · ${suburb}`;
+}
+
+async function buildOSMEmbed(suburb, state, country, leadCount) {
+  try {
+    const q = encodeURIComponent(`${suburb}, ${state || ''}, ${country}`);
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`, {
+      headers: {'Accept': 'application/json'}
+    });
+    const data = await res.json();
+    
+    const mapIframe = document.getElementById('map-iframe');
+    if (data && data[0]) {
+      const lat = parseFloat(data[0].lat);
+      const lon = parseFloat(data[0].lon);
+      const delta = 0.08; // zoom level
+      const bbox = `${lon-delta},${lat-delta},${lon+delta},${lat+delta}`;
+      mapIframe.src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik`;
+    } else {
+      mapIframe.src = `https://www.openstreetmap.org/export/embed.html?bbox=78.2,17.2,78.7,17.6&layer=mapnik`;
+    }
+  } catch(e) {
+    const mapIframe = document.getElementById('map-iframe');
+    mapIframe.src = `https://www.openstreetmap.org/export/embed.html?bbox=78.2,17.2,78.7,17.6&layer=mapnik`;
+  }
+}
+
+function clearAll() {
+  document.getElementById('loc-country').value = '';
+  document.getElementById('loc-state').value = '';
+  document.getElementById('loc-suburb').value = '';
+  locData = { country: '', state: '', suburb: '' };
+  selectedCategories.clear();
+  renderCategoryChips();
+  document.getElementById('found-leads-list').innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No results yet</div></div>`;
+  document.getElementById('scrape-progress').style.display = 'none';
+  document.getElementById('map-placeholder').style.display = 'flex';
+  document.getElementById('map-iframe').style.display = 'none';
+  document.getElementById('scrape-status-badge').textContent = '';
+}
+
+async function openLeadFromFindPage(id) {
+  try {
+    currentLeadId = id;
+    const lead = await fetch(API + '/leads/' + id).then(r => r.json());
+    populateLeadModal(lead);
+  } catch(e) {
+    console.error('openLeadFromFindPage error:', e);
+    toast('Error loading lead', '❌');
+  }
+}
+
+// ─────────────────────────────────────────────
+// BROADCAST
+// ─────────────────────────────────────────────
+async function loadBroadcastStats() {
+  try {
+    const s = await fetch(`${API}/broadcast/stats`).then(r => r.json());
+    document.getElementById('bs-total').textContent = s.total_leads || 0;
+    document.getElementById('bs-email').textContent = s.with_email || 0;
+    document.getElementById('bs-ready').textContent = s.eligible_for_broadcast || 0;
+    const typeEl = document.getElementById('broadcast-by-type');
+    if (s.by_type) {
+      typeEl.innerHTML = '<div style="margin-bottom:6px;color:var(--text2);font-weight:500">By type:</div>' +
+        Object.entries(s.by_type).map(([t,c]) =>
+          `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);">
+            <span>${t||'Unknown'}</span>
+            <span style="font-family:'DM Mono',monospace;color:var(--accent2)">${c}</span>
+          </div>`
+        ).join('');
+    }
+  } catch(e) {}
+}
+
+async function runBroadcast(dryRun = false) {
+  const limit = document.getElementById('broadcast-limit').value;
+  const btype = document.getElementById('broadcast-type').value;
+  const btn   = document.getElementById('broadcast-btn');
+
+  if (!dryRun && !confirm(`Send emails to up to ${limit} leads?\nThis will send real emails.`)) return;
+
+  btn.disabled = true;
+  btn.textContent = dryRun ? '🔍 Running...' : '📣 Sending...';
+  document.getElementById('broadcast-progress').style.display = 'block';
+  document.getElementById('broadcast-bar').style.width = '5%';
+  document.getElementById('broadcast-status-text').textContent = dryRun ? 'Dry run...' : 'Sending emails...';
+
+  try {
+    const params = new URLSearchParams({ limit, dry_run: dryRun });
+    if (btype) params.append('business_type', btype);
+
+    await fetch(`${API}/broadcast/send?${params}`, { method: 'POST' });
+
+    // Poll for completion
+    let dots = 0;
+    const poll = setInterval(async () => {
+      dots = (dots + 1) % 4;
+      document.getElementById('broadcast-bar').style.width = Math.min(90, 5 + dots * 20) + '%';
+
+      const status = await fetch(`${API}/broadcast/status`).then(r => r.json());
+      if (status.status === 'done' && status.result) {
+        clearInterval(poll);
+        document.getElementById('broadcast-bar').style.width = '100%';
+        const r = status.result;
+        document.getElementById('broadcast-status-text').textContent =
+          dryRun
+          ? `Dry run: would send to ${r.total} leads`
+          : `✅ Done — Sent: ${r.sent} | Failed: ${r.failed} | Skipped: ${r.skipped}`;
+        btn.disabled = false;
+        btn.textContent = '📣 Send Broadcast';
+        toast(dryRun ? `Dry run: ${r.total} leads ready` : `📣 Sent to ${r.sent} leads!`, '✅');
+        loadBroadcastStats();
+        // Reset status for next run
+        await fetch(`${API}/settings`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'broadcast_status',value:'idle'})});
+      }
+    }, 3000);
+
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = '📣 Send Broadcast';
+    toast('Broadcast failed', '❌');
+  }
+}
+
+// Load broadcast stats when settings tab opens
+const origLoadSettings = loadSettings;
+loadSettings = async function() {
+  await origLoadSettings();
+  loadBroadcastStats();
+  // Load WA auto reply setting
+  try {
+    const s = await fetch(`${API}/settings`).then(r => r.json());
+    const el = document.getElementById('s-wa-auto-reply');
+    if (el) el.checked = s.wa_auto_reply !== 'false';
+  } catch(e) {}
+};
+
+// Init
+loadDashboard();
+routeFromHash();
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# Secret keys — never upload
+.env
+.env.local
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+
+# PyCharm settings
+.idea/
+
+# Audio files — too large for GitHub
+*.wav
+
+# Conversation logs — personal data
+conversation_*.json
+
+# Ngrok
+start_ngrok.py

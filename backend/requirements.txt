@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pandas
+openpyxl
+python-dotenv
+requests
+beautifulsoup4
+dnspython
+schedule

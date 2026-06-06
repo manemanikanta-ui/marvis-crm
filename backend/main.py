@@ -14,6 +14,7 @@ import pandas as pd
 import json
 import os
 import smtplib
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
@@ -46,6 +47,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_csp_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "frame-src 'self' https://www.openstreetmap.org https://maps.googleapis.com https://maps.google.com https://www.google.com; "
+        "connect-src 'self' https://maps.googleapis.com https://nominatim.openstreetmap.org https://maps.google.com;"
+    )
+    return response
 
 
 from fastapi.responses import FileResponse
@@ -245,7 +260,7 @@ async def import_leads(file_path: str = "../leads_enriched.xlsx"):
                 skipped += 1
                 continue
 
-            conn.execute("""
+            cursor = conn.execute("""
                 INSERT INTO leads 
                 (name, business_type, phone, email, email_source, website, address, rating, reviews, 
                  score, whatsapp_message, email_subject, email_body)
@@ -990,7 +1005,12 @@ async def scrape_leads_endpoint(req: ScrapeRequest, background_tasks: Background
 
                 for query in queries:
                     url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-                    params = {"query": query, "key": GKEY}
+                    params = {
+                        "query": query,
+                        "key": GKEY,
+                        "region": "in",
+                        "language": "en",
+                    }
                     r = req_lib.get(url, params=params, timeout=10)
                     data = r.json()
                     places = data.get("results", [])

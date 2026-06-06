@@ -1333,6 +1333,7 @@ body {
           <div class="field-value" id="modal-address" style="font-size:11px;">—</div>
         </div>
       </div>
+      <button class="btn btn-outline btn-sm" onclick="showLeadMap()" style="margin-top:8px;">🗺 View Map</button>
 
       <div class="section-title">WhatsApp Message</div>
       <div class="message-box" id="modal-whatsapp">—</div>
@@ -3056,6 +3057,67 @@ loadSettings = async function() {
     if (el) el.checked = s.wa_auto_reply !== 'false';
   } catch(e) {}
 };
+
+// View individual lead on map
+function showLeadMap() {
+  const leadId = window.currentLeadId;
+  if (!leadId) return;
+  
+  const address = document.getElementById('modal-address').textContent || '';
+  const name = document.getElementById('modal-name').textContent || '';
+  
+  if (!address || address === '—') {
+    toast('No address available for this lead', '⚠️');
+    return;
+  }
+  
+  // Create map modal if not exists
+  let mapModal = document.getElementById('lead-map-modal');
+  if (!mapModal) {
+    mapModal = document.createElement('div');
+    mapModal.id = 'lead-map-modal';
+    mapModal.className = 'modal-overlay';
+    mapModal.innerHTML = `
+      <div class="modal" style="max-width:600px;">
+        <div class="modal-header">
+          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;">📍 ${name}</div>
+          <button class="btn btn-ghost" onclick="closeLeadMapModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="lead-map-container" style="width:100%;height:350px;border:1px solid var(--border);border-radius:8px;"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(mapModal);
+  }
+  
+  // Update container with Google Maps embed
+  const container = document.getElementById('lead-map-container');
+  const query = encodeURIComponent(`${address}, India`);
+  const mapsUrl = `https://maps.google.com/maps?q=${query}&output=embed&z=15`;
+  const directUrl = `https://maps.google.com/maps?q=${query}`;
+  
+  container.innerHTML = `
+    <iframe
+      src="${mapsUrl}"
+      width="100%" height="220"
+      style="border:0;border-radius:6px;display:block;"
+      allowfullscreen loading="lazy"
+      referrerpolicy="no-referrer-when-downgrade">
+    </iframe>
+    <a href="${directUrl}" target="_blank"
+       style="display:block;margin-top:6px;font-size:11px;
+              color:#4a9eff;text-decoration:none;">
+      ↗ Open in Google Maps
+    </a>
+  `;
+  mapModal.classList.add('open');
+}
+
+function closeLeadMapModal() {
+  const mapModal = document.getElementById('lead-map-modal');
+  if (mapModal) mapModal.classList.remove('open');
+}
 
 // Init
 loadDashboard();

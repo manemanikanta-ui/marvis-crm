@@ -1117,6 +1117,32 @@ body {
           </div>
         </div>
 
+        <!-- API Keys -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">🔑 API Keys</div>
+          </div>
+          <div style="padding:24px;display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+              <div>
+                <div style="font-size:13.5px;font-weight:500;">Anthropic (Claude)</div>
+                <div style="font-size:12px;color:var(--text3);margin-top:3px;" id="key-anthropic-status">—</div>
+              </div>
+              <button class="btn btn-outline btn-sm" onclick="testAnthropic()">Test</button>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+              <div>
+                <div style="font-size:13.5px;font-weight:500;">Google Places</div>
+                <div style="font-size:12px;color:var(--text3);margin-top:3px;" id="key-google-status">—</div>
+              </div>
+              <button class="btn btn-outline btn-sm" onclick="testGoogle()">Test</button>
+            </div>
+            <div style="font-size:12px;color:var(--text3);background:var(--surface2);padding:12px;border-radius:8px;line-height:1.7;">
+              💡 API keys are set via environment variables (<code>.env</code> locally, Railway in production), not editable here. <strong style="color:var(--text2)">Test</strong> makes a tiny live call to verify the configured key works.
+            </div>
+          </div>
+        </div>
+
         <!-- Automation Settings -->
         <div class="panel">
           <div class="panel-header">
@@ -1170,6 +1196,14 @@ body {
               <input class="field-value" id="s-wa-token" type="password" placeholder="Permanent or temporary token..."
                 style="width:100%;border:1px solid var(--border2);outline:none;"
                 onblur="saveSetting('wa_token', this.value)">
+            </div>
+            <div style="display:flex;gap:8px;align-items:end;">
+              <div style="flex:1;">
+                <div class="field-label">Test Number (with country code)</div>
+                <input class="field-value" id="s-wa-test-number" placeholder="91XXXXXXXXXX"
+                  style="width:100%;border:1px solid var(--border2);outline:none;">
+              </div>
+              <button class="btn btn-outline btn-sm" onclick="sendTestWhatsApp()">Send Test</button>
             </div>
             <div style="font-size:12px;color:var(--text3);background:var(--surface2);padding:12px;border-radius:8px;line-height:1.7;">
               💡 <strong style="color:var(--text2)">Where to find these:</strong><br>
@@ -2078,6 +2112,14 @@ async function loadSettings() {
     // Check WA status
     const waStatus = await fetch(`${API}/whatsapp/status`).then(r => r.json());
     updateWAStatusBanner(waStatus);
+    // API key configured status (from /api/health)
+    try {
+      const h = await fetch(`${API}/health`).then(r => r.json());
+      const ae = document.getElementById('key-anthropic-status');
+      if (ae) ae.textContent = h.claude_api === 'configured' ? 'Configured · click Test to verify' : 'Not configured (set ANTHROPIC_API_KEY)';
+      const ge = document.getElementById('key-google-status');
+      if (ge) ge.textContent = h.google_api === 'configured' ? 'Configured · click Test to verify' : 'Not configured (set GOOGLE_API_KEY / GOOGLE_PLACES_API_KEY)';
+    } catch (e) {}
     await loadSchedulerStatus();
   } catch(e) {}
 }
@@ -2290,6 +2332,40 @@ async function testEmail() {
     const res = await fetch(`${API}/test-email`, { method: 'POST' }).then(r => r.json());
     toast(res.message, '✅');
   } catch(e) { toast('Test failed — check email config', '❌'); }
+}
+
+async function sendTestWhatsApp() {
+  const phone = (document.getElementById('s-wa-test-number').value || '').trim();
+  if (!phone) { toast('Enter a test number first', '⚠️'); return; }
+  toast('Sending test WhatsApp...', '📱');
+  try {
+    const res = await fetch(`${API}/whatsapp/send-now`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_id: 0, phone, message: '✅ MARVIS test message — your WhatsApp integration is working.' })
+    }).then(r => r.json());
+    if (res && res.success === false) toast(`❌ ${res.error || 'Send failed'}`, '❌');
+    else toast('✅ Test WhatsApp sent', '📱');
+  } catch (e) { toast('Test send failed', '❌'); }
+}
+
+async function testAnthropic() {
+  const el = document.getElementById('key-anthropic-status');
+  if (el) el.textContent = 'Testing...';
+  try {
+    const res = await fetch(`${API}/test/anthropic`).then(r => r.json());
+    if (el) { el.textContent = res.message; el.style.color = res.ok ? 'var(--green)' : 'var(--red)'; }
+    toast(res.ok ? '✅ Claude key works' : `❌ ${res.message}`, res.ok ? '✅' : '❌');
+  } catch (e) { toast('Anthropic test failed', '❌'); if (el) el.textContent = 'Test failed'; }
+}
+
+async function testGoogle() {
+  const el = document.getElementById('key-google-status');
+  if (el) el.textContent = 'Testing...';
+  try {
+    const res = await fetch(`${API}/test/google`).then(r => r.json());
+    if (el) { el.textContent = res.message; el.style.color = res.ok ? 'var(--green)' : 'var(--red)'; }
+    toast(res.ok ? '✅ Google key works' : `❌ ${res.message}`, res.ok ? '✅' : '❌');
+  } catch (e) { toast('Google test failed', '❌'); if (el) el.textContent = 'Test failed'; }
 }
 
 async function loadEmailQueue() {

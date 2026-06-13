@@ -902,6 +902,47 @@ async def recompute_scores():
     return {"success": True, "updated": result["updated"], "hot_leads": hot}
 
 
+@app.get("/api/test/anthropic")
+def test_anthropic_key():
+    """Verify the configured Anthropic API key with a tiny live call."""
+    key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not key:
+        return {"ok": False, "configured": False, "message": "ANTHROPIC_API_KEY not set"}
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=key)
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=5,
+            messages=[{"role": "user", "content": "Reply with OK"}],
+        )
+        text = (resp.content[0].text if resp.content else "").strip()
+        return {"ok": True, "configured": True, "message": f"Claude reachable ({text[:20]})"}
+    except Exception as e:
+        return {"ok": False, "configured": True, "message": f"Claude error: {str(e)[:160]}"}
+
+
+@app.get("/api/test/google")
+def test_google_key():
+    """Verify the configured Google Places key with a tiny live call."""
+    key = google_api_key()
+    if not key:
+        return {"ok": False, "configured": False, "message": "Google Places key not set (GOOGLE_API_KEY / GOOGLE_PLACES_API_KEY)"}
+    try:
+        r = requests.get(
+            "https://maps.googleapis.com/maps/api/place/textsearch/json",
+            params={"query": "cafe in Hyderabad", "key": key, "region": "in"},
+            timeout=10,
+        )
+        data = r.json()
+        status = data.get("status", "")
+        if status in ("OK", "ZERO_RESULTS"):
+            return {"ok": True, "configured": True, "message": f"Google Places reachable ({status})"}
+        return {"ok": False, "configured": True, "message": f"Google error: {status} {data.get('error_message', '')}".strip()[:160]}
+    except Exception as e:
+        return {"ok": False, "configured": True, "message": f"Google error: {str(e)[:160]}"}
+
+
 @app.get("/api/stats")
 async def get_stats():
     conn = get_db()

@@ -246,6 +246,17 @@ body {
 .filter-chip:hover { border-color: var(--accent); color: var(--accent2); }
 .filter-chip.active { background: #7c6af720; border-color: var(--accent); color: var(--accent2); }
 
+/* All Leads: sortable headers, 3-dot menu, category bar */
+.th-sort { cursor: pointer; user-select: none; }
+.th-sort:hover { color: var(--accent2); }
+.menu-item { padding: 8px 12px; font-size: 13px; color: var(--text); border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.menu-item:hover { background: var(--surface2); }
+.menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+.menu-label { padding: 7px 12px 3px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text3); font-family: 'DM Mono', monospace; }
+.lead-cat-chip { padding: 5px 12px; border-radius: 20px; font-size: 12px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.lead-cat-chip:hover { border-color: var(--accent); }
+.lead-cat-chip.active { background: #7c6af720; border-color: var(--accent); color: var(--accent2); }
+
 .search-input {
   background: var(--surface2);
   border: 1px solid var(--border2);
@@ -262,7 +273,7 @@ body {
 
 .table-header {
   display: grid;
-  grid-template-columns: 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px;
+  grid-template-columns: 36px 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px;
   padding: 10px 20px;
   font-size: 11px; color: var(--text3);
   text-transform: uppercase; letter-spacing: 0.8px;
@@ -272,7 +283,7 @@ body {
 
 .lead-row {
   display: grid;
-  grid-template-columns: 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px;
+  grid-template-columns: 36px 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px;
   padding: 12px 20px; align-items: center;
   border-bottom: 1px solid var(--border);
   cursor: pointer; transition: background 0.1s;
@@ -837,10 +848,59 @@ body {
 
     <!-- LEADS VIEW -->
     <div id="view-leads" style="display:none">
+
+      <!-- Stat cards (bound to /api/stats) -->
+      <div id="leads-stats" style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px;">
+        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+          <div class="stat-label">Total Leads</div><div class="stat-value" id="ls-total">—</div>
+        </div>
+        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+          <div class="stat-label">New Today</div><div class="stat-value" id="ls-new">—</div>
+        </div>
+        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+          <div class="stat-label">Hot Leads</div><div class="stat-value" id="ls-hot">—</div>
+        </div>
+        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+          <div class="stat-label">Pending Approvals</div><div class="stat-value" id="ls-approvals">—</div>
+        </div>
+        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+          <div class="stat-label">Emails Sent Today</div><div class="stat-value" id="ls-emails">—</div>
+        </div>
+        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+          <div class="stat-label">Conversion Rate</div><div class="stat-value" id="ls-conv">—</div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">All Leads</div>
-          <input class="search-input" placeholder="🔍  Search leads..." oninput="searchLeads(this.value)" id="search-input">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <input class="search-input" placeholder="🔍  Search leads..." oninput="searchLeads(this.value)" id="search-input">
+            <span id="leads-selected-count" style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;"></span>
+            <div style="position:relative;">
+              <button class="btn btn-ghost btn-sm" title="Actions" style="font-size:18px;line-height:1;padding:4px 10px;" onclick="event.stopPropagation();toggleLeadsMenu()">⋮</button>
+              <div id="leads-menu" style="display:none;position:absolute;right:0;top:110%;z-index:1000;background:#1a1f2e;border:1px solid #2d3748;border-radius:8px;min-width:210px;box-shadow:0 8px 24px rgba(0,0,0,0.4);padding:6px;">
+                <div class="menu-item" onclick="selectAllLeads()">☑ Select All</div>
+                <div class="menu-item" onclick="selectMarkedLeads()">🔥 Select Hot (≥60)</div>
+                <div class="menu-item" onclick="deselectAllLeads()">▢ Deselect All</div>
+                <div class="menu-sep"></div>
+                <div class="menu-label">Sort</div>
+                <div class="menu-item" onclick="applySort('score_desc')">Score ↓</div>
+                <div class="menu-item" onclick="applySort('score_asc')">Score ↑</div>
+                <div class="menu-item" onclick="applySort('reviews_desc')">Reviews ↓</div>
+                <div class="menu-item" onclick="applySort('reviews_asc')">Reviews ↑</div>
+                <div class="menu-item" onclick="applySort('name_asc')">Name A–Z</div>
+                <div class="menu-item" onclick="applySort('name_desc')">Name Z–A</div>
+                <div class="menu-item" onclick="applySort('created_desc')">Newest</div>
+                <div class="menu-item" onclick="applySort('created_asc')">Oldest</div>
+                <div class="menu-sep"></div>
+                <div class="menu-label">Bulk Actions</div>
+                <div class="menu-item" onclick="bulkEnrichSelected()">✨ Enrich Selected</div>
+                <div class="menu-item" onclick="bulkEmailSelected()">📧 Email Selected</div>
+                <div class="menu-item" style="color:var(--red)" onclick="bulkDeleteSelected()">🗑 Delete Selected</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="filters">
           <button class="filter-chip active" onclick="filterLeads('all', this)">All</button>
@@ -850,12 +910,14 @@ body {
           <button class="filter-chip" onclick="filterLeads('converted', this)">Converted</button>
           <button class="filter-chip" onclick="filterLeads('declined', this)">Declined</button>
         </div>
+        <div id="leads-category-bar" style="display:flex;gap:8px;overflow-x:auto;padding:10px 20px;border-bottom:1px solid var(--border);white-space:nowrap;"></div>
         <div class="table-header">
-          <span>BUSINESS</span>
+          <span><input type="checkbox" id="select-all-visible" title="Select all visible" onclick="toggleSelectAllVisible(this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></span>
+          <span class="th-sort" onclick="sortByHeader('name')">BUSINESS ⇅</span>
           <span>PHONE</span>
           <span>EMAIL</span>
-          <span>REVIEWS</span>
-          <span>SCORE</span>
+          <span class="th-sort" onclick="sortByHeader('reviews')">REVIEWS ⇅</span>
+          <span class="th-sort" onclick="sortByHeader('score')">SCORE ⇅</span>
           <span>STATUS</span>
           <span></span>
         </div>
@@ -1421,6 +1483,9 @@ let currentLeadId = null;
 let currentFilter = 'all';
 let searchQuery = '';
 let allLeads = [];
+let currentSort = 'created_desc';
+let currentCategory = 'all';
+let selectedLeadIds = new Set();
 
 // ─────────────────────────────────────────────
 // NAVIGATION
@@ -1437,7 +1502,7 @@ function showView(view) {
   });
   document.getElementById('page-title').textContent = titles[view];
   if (view === 'dashboard') loadDashboard();
-  if (view === 'leads') loadLeads();
+  if (view === 'leads') loadLeadsView();
   if (view === 'pipeline') loadPipeline();
   if (view === 'followups') loadFollowups();
   if (view === 'settings') loadSettings();
@@ -1659,16 +1724,61 @@ async function bulkPausePending() {
 // ─────────────────────────────────────────────
 // LEADS
 // ─────────────────────────────────────────────
+function loadLeadsView() {
+  loadLeadStats();
+  loadCategoryBar();
+  loadLeads();
+}
+
+async function loadLeadStats() {
+  try {
+    const s = await fetch(`${API}/stats`).then(r => r.json());
+    document.getElementById('ls-total').textContent     = s.total_leads ?? 0;
+    document.getElementById('ls-new').textContent       = s.new_leads ?? 0;
+    document.getElementById('ls-hot').textContent       = s.hot_leads ?? 0;
+    document.getElementById('ls-approvals').textContent = s.pending_approvals ?? 0;
+    document.getElementById('ls-emails').textContent    = s.emails_sent_today ?? 0;
+    document.getElementById('ls-conv').textContent      = (s.conversion_rate ?? 0) + '%';
+  } catch (e) {}
+}
+
+async function loadCategoryBar() {
+  const bar = document.getElementById('leads-category-bar');
+  if (!bar) return;
+  try {
+    const res = await fetch(`${API}/leads?limit=1000`).then(r => r.json());
+    const counts = {};
+    (res.leads || []).forEach(l => {
+      const c = ((l.business_type || '').trim()) || 'Uncategorized';
+      counts[c] = (counts[c] || 0) + 1;
+    });
+    const total = res.total ?? (res.leads || []).length;
+    const cats = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    let html = `<div class="lead-cat-chip ${currentCategory === 'all' ? 'active' : ''}" onclick="filterByCategory('all')">All <span style="opacity:.6">${total}</span></div>`;
+    html += cats.map(([c, n]) =>
+      `<div class="lead-cat-chip ${currentCategory === c ? 'active' : ''}" onclick="filterByCategory('${_escq(c)}')">${c} <span style="opacity:.6">${n}</span></div>`
+    ).join('');
+    bar.innerHTML = html;
+  } catch (e) { bar.innerHTML = ''; }
+}
+
+function filterByCategory(cat) {
+  currentCategory = cat;
+  loadCategoryBar();
+  loadLeads();
+}
+
 async function loadLeads() {
   const container = document.getElementById('leads-list');
   container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
   try {
-    const params = new URLSearchParams({ limit: 200, offset: 0 });
+    const params = new URLSearchParams({ limit: 200, offset: 0, sort: currentSort });
     if (currentFilter !== 'all') params.append('status', currentFilter);
+    if (currentCategory !== 'all') params.append('category', currentCategory);
     if (searchQuery) params.append('search', searchQuery);
 
     const res = await fetch(`${API}/leads?${params}`).then(r => r.json());
-    allLeads = res.leads;
+    allLeads = res.leads || [];
 
     if (allLeads.length === 0) {
       container.innerHTML = `<div class="empty-state">
@@ -1676,21 +1786,32 @@ async function loadLeads() {
         <div class="empty-title">No leads found</div>
         <div class="empty-sub">Try a different filter or import leads first</div>
       </div>`;
+      updateSelectionUI();
       return;
     }
 
     container.innerHTML = allLeads.map(l => renderLeadRow(l)).join('');
+    updateSelectionUI();
   } catch(e) {
     container.innerHTML = `<div class="empty-state"><div class="empty-title">Error loading leads</div></div>`;
   }
+}
+
+function rerenderLeads() {
+  const container = document.getElementById('leads-list');
+  if (!container || !allLeads.length) return;
+  container.innerHTML = allLeads.map(l => renderLeadRow(l)).join('');
+  updateSelectionUI();
 }
 
 function renderLeadRow(l) {
   var sc = l.score >= 60 ? 'var(--green)' : l.score >= 40 ? 'var(--yellow)' : 'var(--text3)';
   var em = l.email ? '&#10003; ' + l.email : '&mdash;';
   var emColor = l.email ? 'color:var(--green)' : 'color:var(--text3)';
+  var checked = selectedLeadIds.has(l.id) ? ' checked' : '';
   return [
     '<div class="lead-row" onclick="openLead(' + l.id + ')">',
+    '<div onclick="event.stopPropagation()"><input type="checkbox" class="lead-check"' + checked + ' onclick="toggleLeadSelection(' + l.id + ', this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></div>',
     '<div>',
     '<div class="lead-name">' + (l.name||'') + '</div>',
     '<div class="lead-type">' + (l.business_type||'') + '</div>',
@@ -1708,6 +1829,121 @@ function renderLeadRow(l) {
     '</div>',
     '</div>'
   ].join('');
+}
+
+// ── Selection ──
+function toggleLeadSelection(id, checked) {
+  if (checked) selectedLeadIds.add(id); else selectedLeadIds.delete(id);
+  updateSelectionUI();
+}
+function updateSelectionUI() {
+  const cb = document.getElementById('select-all-visible');
+  const visIds = allLeads.map(l => l.id);
+  if (cb) cb.checked = visIds.length > 0 && visIds.every(id => selectedLeadIds.has(id));
+  const label = document.getElementById('leads-selected-count');
+  if (label) label.textContent = selectedLeadIds.size ? `${selectedLeadIds.size} selected` : '';
+}
+function toggleSelectAllVisible(checked) {
+  allLeads.forEach(l => { if (checked) selectedLeadIds.add(l.id); else selectedLeadIds.delete(l.id); });
+  document.querySelectorAll('.lead-check').forEach(cb => { cb.checked = checked; });
+  updateSelectionUI();
+}
+function selectAllLeads() {
+  allLeads.forEach(l => selectedLeadIds.add(l.id));
+  rerenderLeads();
+  closeLeadsMenu();
+  toast(`${selectedLeadIds.size} selected`, '☑');
+}
+function selectMarkedLeads() {
+  // "Marked" = hot leads (score >= 60) among the visible rows
+  let n = 0;
+  allLeads.forEach(l => { if ((l.score || 0) >= 60) { selectedLeadIds.add(l.id); n++; } });
+  rerenderLeads();
+  closeLeadsMenu();
+  toast(`${n} hot lead(s) selected`, '🔥');
+}
+function deselectAllLeads() {
+  selectedLeadIds.clear();
+  rerenderLeads();
+  closeLeadsMenu();
+}
+
+// ── 3-dot menu + sort ──
+function toggleLeadsMenu() {
+  const m = document.getElementById('leads-menu');
+  if (m) m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none';
+}
+function closeLeadsMenu() {
+  const m = document.getElementById('leads-menu');
+  if (m) m.style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#leads-menu')) closeLeadsMenu();
+});
+function applySort(sortKey) {
+  currentSort = sortKey;
+  closeLeadsMenu();
+  loadLeads();
+}
+function sortByHeader(field) {
+  const map = {
+    name:    ['name_asc', 'name_desc'],
+    reviews: ['reviews_desc', 'reviews_asc'],
+    score:   ['score_desc', 'score_asc'],
+  };
+  const pair = map[field];
+  if (!pair) return;
+  currentSort = currentSort === pair[0] ? pair[1] : pair[0];
+  loadLeads();
+}
+
+// ── Bulk actions ──
+async function bulkEnrichSelected() {
+  closeLeadsMenu();
+  const ids = [...selectedLeadIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Generate AI outreach for ${ids.length} selected lead(s)?\nThis uses Claude API credits.`)) return;
+  try {
+    const res = await fetch(`${API}/leads/bulk-enrich`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_ids: ids })
+    }).then(r => r.json());
+    toast(res.message || `Enriching ${ids.length} leads`, '✨');
+  } catch (e) { toast('Bulk enrich failed', '❌'); }
+}
+async function bulkEmailSelected() {
+  closeLeadsMenu();
+  const ids = [...selectedLeadIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  const targets = allLeads.filter(l => selectedLeadIds.has(l.id) && l.email && l.email_subject);
+  if (!targets.length) { toast('Selected leads have no email + generated subject yet', '⚠️'); return; }
+  if (!confirm(`Send email to ${targets.length} of ${ids.length} selected lead(s)?\nLeads must be approved — others are skipped by the server.`)) return;
+  let queued = 0;
+  for (const l of targets) {
+    try {
+      const r = await fetch(`${API}/send-email`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: l.id, to_email: l.email, subject: l.email_subject, body: l.email_body || '' })
+      });
+      if (r.ok) queued++;
+    } catch (e) {}
+  }
+  toast(`Queued email for ${queued}/${targets.length} approved lead(s)`, '📧');
+}
+async function bulkDeleteSelected() {
+  closeLeadsMenu();
+  const ids = [...selectedLeadIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Delete ${ids.length} selected lead(s)? This cannot be undone.`)) return;
+  try {
+    const res = await fetch(`${API}/leads/bulk-delete`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_ids: ids })
+    }).then(r => r.json());
+    toast(`Deleted ${res.deleted ?? ids.length} lead(s)`, '🗑');
+    selectedLeadIds.clear();
+    loadLeadsView();
+  } catch (e) { toast('Bulk delete failed', '❌'); }
 }
 
 function filterLeads(status, el) {

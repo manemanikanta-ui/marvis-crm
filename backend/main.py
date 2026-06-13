@@ -17,7 +17,7 @@ import smtplib
 import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import threading
 import time
 from dotenv import load_dotenv
@@ -319,9 +319,22 @@ async def get_leads(
     status: Optional[str] = None,
     priority: Optional[str] = None,
     search: Optional[str] = None,
+    sort: str = "created_desc",
     limit: int = 100,
     offset: int = 0
 ):
+    order_map = {
+        "score_desc":   "score DESC",
+        "score_asc":    "score ASC",
+        "reviews_desc": "reviews DESC",
+        "reviews_asc":  "reviews ASC",
+        "name_asc":     "name ASC",
+        "name_desc":    "name DESC",
+        "created_desc": "created_at DESC",
+        "created_asc":  "created_at ASC",
+    }
+    order_clause = order_map.get(sort, "created_at DESC")
+
     conn = get_db()
     query = "SELECT * FROM leads WHERE 1=1"
     params = []
@@ -336,7 +349,7 @@ async def get_leads(
         query += " AND (name LIKE ? OR business_type LIKE ? OR address LIKE ?)"
         params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
 
-    query += " ORDER BY score DESC, created_at DESC LIMIT ? OFFSET ?"
+    query += f" ORDER BY {order_clause} LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
     leads = [dict(row) for row in conn.execute(query, params).fetchall()]
@@ -720,6 +733,24 @@ async def campaign_stats():
 async def hud_websocket(websocket: WebSocket):
     await hud_manager.connect(websocket)
     try:
+        # Push current CRM snapshot so HUD populates immediately on connect
+        try:
+            conn = get_db()
+            total = conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
+            hot = conn.execute("SELECT COUNT(*) FROM leads WHERE score >= 60").fetchone()[0]
+            approvals = conn.execute(
+                "SELECT COUNT(*) FROM leads WHERE status IN ('pending_review','new')"
+                " AND (COALESCE(whatsapp_message,'') != '' OR COALESCE(email_subject,'') != ''"
+                " OR COALESCE(email_body,'') != '')"
+            ).fetchone()[0]
+            conn.close()
+            await websocket.send_text(json.dumps({
+                "type": "crm_snapshot",
+                "data": {"total_leads": total, "hot_leads": hot, "pending_approvals": approvals},
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }, ensure_ascii=False))
+        except Exception:
+            pass
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
@@ -1123,9 +1154,12 @@ async def scrape_leads_endpoint(req: ScrapeRequest, background_tasks: Background
             # Store map data
             map_leads = [l for l in leads if l.get("lat") and l.get("lng")]
             conn.execute("DELETE FROM settings WHERE key = 'last_scrape_map'")
-            import json
             conn.execute("INSERT INTO settings (key, value) VALUES ('last_scrape_map', ?)",
                 (json.dumps(map_leads[:100]),))
+            # Store all found leads for display in Found Leads panel
+            conn.execute("DELETE FROM settings WHERE key = 'last_scrape_leads'")
+            conn.execute("INSERT INTO settings (key, value) VALUES ('last_scrape_leads', ?)",
+                (json.dumps(leads),))
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_scrape_result', ?)",
                 (json.dumps({"imported": imported, "skipped": skipped, "total": len(leads)}),))
             conn.commit()
@@ -1154,6 +1188,7 @@ async def scrape_status():
     conn = get_db()
     result   = conn.execute("SELECT value FROM settings WHERE key = 'last_scrape_result'").fetchone()
     map_data = conn.execute("SELECT value FROM settings WHERE key = 'last_scrape_map'").fetchone()
+    leads_data = conn.execute("SELECT value FROM settings WHERE key = 'last_scrape_leads'").fetchone()
     conn.close()
 
     def safe_parse(row):
@@ -1167,10 +1202,12 @@ async def scrape_status():
 
     parsed_result = safe_parse(result)
     parsed_map    = safe_parse(map_data)
+    parsed_leads  = safe_parse(leads_data)
     return {
         "status": "done" if parsed_result else "running",
         "result": parsed_result,
-        "map_leads": parsed_map or []
+        "map_leads": parsed_map or [],
+        "leads": parsed_leads or []
     }
 
 @app.get("/api/leads-map")

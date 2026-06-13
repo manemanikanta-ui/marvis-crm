@@ -63,7 +63,7 @@ async def add_csp_headers(request: Request, call_next):
     return response
 
 
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import pathlib
 
 @app.get("/")
@@ -912,7 +912,7 @@ def test_anthropic_key():
         import anthropic
         client = anthropic.Anthropic(api_key=key)
         resp = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=5,
             messages=[{"role": "user", "content": "Reply with OK"}],
         )
@@ -941,6 +941,45 @@ def test_google_key():
         return {"ok": False, "configured": True, "message": f"Google error: {status} {data.get('error_message', '')}".strip()[:160]}
     except Exception as e:
         return {"ok": False, "configured": True, "message": f"Google error: {str(e)[:160]}"}
+
+
+@app.post("/api/test/email")
+async def test_email_smtp(request: Request):
+    """Synchronous Gmail SMTP test — sends a real message and returns the actual result."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    conn = get_db()
+    settings = {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings").fetchall()}
+    conn.close()
+    email_user = settings.get("email_user", "")
+    email_pass = settings.get("email_pass", "")
+    sender_name = settings.get("sender_name", "Manikanta | Talktiv AI")
+    to_email = (body.get("to") or "").strip() or email_user
+
+    if not email_user or not email_pass:
+        return JSONResponse({"error": "Gmail credentials not configured in Settings"}, status_code=400)
+    if not to_email:
+        return JSONResponse({"error": "No recipient email provided"}, status_code=400)
+
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = f"{sender_name} <{email_user}>"
+        msg["To"] = to_email
+        msg["Subject"] = "MARVIS CRM — Test Email"
+        msg.attach(MIMEText(
+            "This is a test email from MARVIS CRM. If you received this, Gmail SMTP is configured correctly.",
+            "plain",
+        ))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
+            server.login(email_user, email_pass)
+            server.sendmail(email_user, to_email, msg.as_string())
+        return JSONResponse({"success": True, "message": f"Test email sent to {to_email}"})
+    except smtplib.SMTPAuthenticationError:
+        return JSONResponse({"error": "Gmail authentication failed. Check your App Password."}, status_code=401)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/api/stats")

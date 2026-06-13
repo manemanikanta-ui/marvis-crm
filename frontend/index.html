@@ -2329,8 +2329,13 @@ async function verifyWhatsApp() {
 async function testEmail() {
   toast('Sending test email...', '📧');
   try {
-    const res = await fetch(`${API}/test-email`, { method: 'POST' }).then(r => r.json());
-    toast(res.message, '✅');
+    const resp = await fetch(`${API}/test/email`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: (document.getElementById('s-email').value || '').trim() })
+    });
+    const res = await resp.json().catch(() => ({}));
+    if (resp.ok && res.success) toast(res.message || 'Test email sent', '✅');
+    else toast(`❌ ${res.error || res.detail || 'Email test failed'}`, '❌');
   } catch(e) { toast('Test failed — check email config', '❌'); }
 }
 

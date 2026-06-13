@@ -236,6 +236,32 @@ class SchedulerConfigUpdate(BaseModel):
     jobs: Optional[List[dict]] = None
     queries: Optional[List[str]] = None
 
+class LeadScrapeRequest(BaseModel):
+    query: str
+    city: Optional[str] = ""
+    state: Optional[str] = ""
+    country: Optional[str] = "India"
+    max_results: int = 20
+
+class BulkIds(BaseModel):
+    lead_ids: List[int]
+
+# Google Places region bias per country (no hardcoded fallbacks beyond a sane default)
+COUNTRY_REGION_MAP = {
+    "India": "in",
+    "United States": "us",
+    "USA": "us",
+    "US": "us",
+    "United Kingdom": "gb",
+    "UK": "gb",
+    "Australia": "au",
+    "Canada": "ca",
+    "UAE": "ae",
+    "United Arab Emirates": "ae",
+    "Singapore": "sg",
+    "New Zealand": "nz",
+}
+
 # ─────────────────────────────────────────────
 # IMPORT FROM EXCEL
 # ─────────────────────────────────────────────
@@ -318,6 +344,7 @@ async def import_leads(file_path: str = "../leads_enriched.xlsx"):
 async def get_leads(
     status: Optional[str] = None,
     priority: Optional[str] = None,
+    category: Optional[str] = None,
     search: Optional[str] = None,
     sort: str = "created_desc",
     limit: int = 100,
@@ -345,6 +372,9 @@ async def get_leads(
     if priority:
         query += " AND priority = ?"
         params.append(priority)
+    if category and category != "all":
+        query += " AND business_type = ?"
+        params.append(category)
     if search:
         query += " AND (name LIKE ? OR business_type LIKE ? OR address LIKE ?)"
         params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
@@ -424,6 +454,188 @@ async def delete_lead(lead_id: int):
     conn.commit()
     conn.close()
     return {"success": True}
+
+
+@app.post("/api/leads/scrape")
+def scrape_leads_sync(req: LeadScrapeRequest):
+    """
+    Synchronous Google Places scrape — scrape + email + score + import,
+    then return the found leads immediately.
+    Returns: {success, total_found, new_leads, query, leads:[...]}
+    Defined as a sync endpoint so FastAPI runs it in a threadpool (blocking HTTP is fine).
+    """
+    import re
+    from bs4 import BeautifulSoup
+
+    GKEY = os.getenv("GOOGLE_API_KEY", "")
+    if not GKEY:
+        raise HTTPException(status_code=400, detail="GOOGLE_API_KEY not configured")
+
+    location_str = ", ".join([p for p in [req.city, req.state, req.country] if p])
+    search_query = f"{req.query} in {location_str}" if location_str else req.query
+    region = COUNTRY_REGION_MAP.get((req.country or "").strip(), "in")
+    max_results = max(1, int(req.max_results or 20))
+
+    EMAIL_REGEX = re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}')
+    BLACKLIST = {'example.com', 'sentry.io', 'wixpress.com', 'google.com', 'facebook.com'}
+
+    leads = []
+    seen = set()
+    try:
+        r = requests.get(
+            "https://maps.googleapis.com/maps/api/place/textsearch/json",
+            params={"query": search_query, "key": GKEY, "region": region, "language": "en"},
+            timeout=15,
+        )
+        places = r.json().get("results", [])
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Google Places error: {e}")
+
+    for place in places[:max_results]:
+        pid = place.get("place_id")
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+
+        try:
+            det = requests.get(
+                "https://maps.googleapis.com/maps/api/place/details/json",
+                params={
+                    "place_id": pid,
+                    "fields": "name,formatted_phone_number,website,rating,user_ratings_total,formatted_address,geometry",
+                    "key": GKEY,
+                },
+                timeout=10,
+            ).json().get("result", {})
+        except Exception:
+            det = {}
+
+        name = det.get("name", place.get("name", ""))
+        website = det.get("website", "")
+        phone = det.get("formatted_phone_number", "")
+        reviews = det.get("user_ratings_total", 0) or 0
+        lat = det.get("geometry", {}).get("location", {}).get("lat", 0)
+        lng = det.get("geometry", {}).get("location", {}).get("lng", 0)
+
+        email, email_source = "", ""
+        if website:
+            try:
+                w = website if website.startswith("http") else "https://" + website
+                rr = requests.get(w, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+                soup = BeautifulSoup(rr.text, "html.parser")
+                for link in soup.find_all("a", href=True):
+                    href = link["href"]
+                    if href.startswith("mailto:"):
+                        e = href.replace("mailto:", "").split("?")[0].strip().lower()
+                        if "@" in e and not any(b in e for b in BLACKLIST):
+                            email, email_source = e, "mailto"
+                            break
+                if not email:
+                    for m in EMAIL_REGEX.findall(rr.text):
+                        if "@" in m and "." in m.split("@")[1] and not any(b in m for b in BLACKLIST):
+                            email, email_source = m.lower(), "website"
+                            break
+            except Exception:
+                pass
+
+        score = 0
+        if reviews < 20:    score += 40
+        elif reviews < 50:  score += 30
+        elif reviews < 100: score += 20
+        else:               score += 5
+        if website: score += 15
+        if phone:   score += 20
+        if email:   score += 25
+        score = min(score, 100)
+
+        leads.append({
+            "name": name,
+            "business_type": req.query.strip(),
+            "phone": phone,
+            "email": email,
+            "email_source": email_source,
+            "website": website,
+            "rating": det.get("rating", 0) or 0,
+            "reviews": reviews,
+            "address": det.get("formatted_address", ""),
+            "score": score,
+            "lat": lat,
+            "lng": lng,
+            "place_id": pid,
+        })
+
+    # Import into CRM with de-dup by name/phone
+    imported = 0
+    conn = get_db()
+    for lead in leads:
+        existing = conn.execute(
+            "SELECT id FROM leads WHERE name = ? OR (phone = ? AND phone != '')",
+            (lead["name"], lead["phone"]),
+        ).fetchone()
+        if existing:
+            lead["id"] = existing["id"]
+            continue
+        cursor = conn.execute(
+            """
+            INSERT INTO leads (name, business_type, phone, email, email_source,
+                website, address, rating, reviews, score, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'crm_scrape')
+            """,
+            (
+                lead["name"], lead["business_type"], lead["phone"], lead["email"],
+                lead["email_source"], lead["website"], lead["address"],
+                float(lead["rating"] or 0), int(lead["reviews"] or 0), int(lead["score"] or 0),
+            ),
+        )
+        lead["id"] = cursor.lastrowid
+        imported += 1
+        emit_hud_event("new_lead", {
+            "name": lead["name"], "category": lead["business_type"], "lead_id": lead["id"],
+        })
+    conn.commit()
+    conn.close()
+
+    return {
+        "success": True,
+        "total_found": len(leads),
+        "new_leads": imported,
+        "query": search_query,
+        "leads": leads,
+    }
+
+
+@app.post("/api/leads/bulk-delete")
+async def bulk_delete_leads(req: BulkIds):
+    """Delete multiple leads (and their activities) by id array."""
+    if not req.lead_ids:
+        raise HTTPException(status_code=400, detail="No lead_ids provided")
+    conn = get_db()
+    placeholders = ",".join("?" for _ in req.lead_ids)
+    conn.execute(f"DELETE FROM activities WHERE lead_id IN ({placeholders})", list(req.lead_ids))
+    result = conn.execute(f"DELETE FROM leads WHERE id IN ({placeholders})", list(req.lead_ids))
+    deleted = result.rowcount
+    conn.commit()
+    conn.close()
+    return {"success": True, "deleted": deleted}
+
+
+@app.post("/api/leads/bulk-enrich")
+async def bulk_enrich_leads(req: BulkIds, background_tasks: BackgroundTasks):
+    """Trigger Claude enrichment for multiple leads by id array (runs in background)."""
+    if not req.lead_ids:
+        raise HTTPException(status_code=400, detail="No lead_ids provided")
+    ids = list(req.lead_ids)
+
+    def run():
+        from enrichment import enrich_lead_in_db
+        for lid in ids:
+            try:
+                enrich_lead_in_db(lid)
+            except Exception as e:
+                print(f"bulk-enrich error for lead {lid}: {e}")
+
+    background_tasks.add_task(run)
+    return {"success": True, "message": f"Enriching {len(ids)} leads in background", "count": len(ids)}
 
 # ─────────────────────────────────────────────
 # ACTIVITIES & OUTREACH
@@ -588,7 +800,39 @@ Would that be helpful? — Manikanta | Talktiv AI"""
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "marvis-crm"}
+    # CRM / DB reachability
+    crm_ok = False
+    try:
+        conn = get_db()
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+        crm_ok = True
+    except Exception as e:
+        print(f"health: DB check failed: {e}")
+
+    claude_ok = bool(os.getenv("ANTHROPIC_API_KEY"))
+    google_ok = bool(os.getenv("GOOGLE_API_KEY"))
+
+    scheduler_ok = False
+    next_run = ""
+    try:
+        from scheduler import get_scheduler_status
+        sched = get_scheduler_status()
+        scheduler_ok = bool(sched.get("enabled"))
+        run_time = sched.get("run_time", "")
+        next_run = f"{run_time} IST" if run_time else ""
+    except Exception as e:
+        print(f"health: scheduler check failed: {e}")
+
+    return {
+        "status": "ok" if crm_ok else "degraded",
+        "service": "marvis-crm",
+        "crm": "ok" if crm_ok else "down",
+        "claude_api": "configured" if claude_ok else "not_configured",
+        "google_api": "configured" if google_ok else "not_configured",
+        "scheduler": "running" if scheduler_ok else "stopped",
+        "next_run": next_run,
+    }
 
 
 @app.post("/api/bulk-approve")
@@ -631,15 +875,57 @@ async def get_stats():
     pending_approvals = conn.execute(
         "SELECT COUNT(*) FROM leads WHERE status IN ('pending_review', 'new') AND (COALESCE(whatsapp_message,'') != '' OR COALESCE(email_subject,'') != '' OR COALESCE(email_body,'') != '')"
     ).fetchone()[0]
+    new_leads = conn.execute(
+        "SELECT COUNT(*) FROM leads WHERE date(created_at) = date('now')"
+    ).fetchone()[0]
+    emails_sent_today = conn.execute(
+        "SELECT COUNT(*) FROM activities WHERE channel = 'email' AND status = 'sent' AND date(created_at) = date('now')"
+    ).fetchone()[0]
+    replies_today = conn.execute(
+        "SELECT COUNT(*) FROM activities WHERE type IN ('reply', 'inbound') AND date(created_at) = date('now')"
+    ).fetchone()[0]
+    # Replies received today that have not yet had any outbound response after them
+    new_replies = conn.execute(
+        """
+        SELECT COUNT(*) FROM activities a
+        WHERE a.type IN ('reply', 'inbound')
+          AND date(a.created_at) = date('now')
+          AND NOT EXISTS (
+              SELECT 1 FROM activities b
+              WHERE b.lead_id = a.lead_id
+                AND b.direction = 'outbound'
+                AND b.created_at > a.created_at
+          )
+        """
+    ).fetchone()[0]
 
     conn.close()
+
+    # Real scheduler state (no hardcoded values)
+    scheduler_running = False
+    next_run = ""
+    try:
+        from scheduler import get_scheduler_status
+        sched = get_scheduler_status()
+        scheduler_running = bool(sched.get("enabled"))
+        run_time = sched.get("run_time", "")
+        next_run = f"{run_time} IST" if run_time else ""
+    except Exception as e:
+        print(f"scheduler status error in /api/stats: {e}")
+
     return {
         "total_leads": total,
+        "new_leads": new_leads,
         "hot_leads": hot_leads,
         "contacted": contacted,
         "converted": converted,
         "pending_followups": pending_followups,
         "pending_approvals": pending_approvals,
+        "emails_sent_today": emails_sent_today,
+        "replies_today": replies_today,
+        "new_replies": new_replies,
+        "scheduler_running": scheduler_running,
+        "next_run": next_run,
         "conversion_rate": round((converted / contacted * 100) if contacted > 0 else 0, 1),
         "by_status": by_status,
         "by_type": by_type,

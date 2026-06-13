@@ -1,0 +1,5 @@
+backend/data/*.db
+backend/data/*.db-journal
+backend/logs/
+_check.js
+_extract.py

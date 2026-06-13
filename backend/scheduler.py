@@ -51,20 +51,34 @@ LEADS_XLSX = LEAD_MACHINE_DIR / "leads.xlsx"
 LEADS_ENRICHED_XLSX = LEAD_MACHINE_DIR / "leads_enriched.xlsx"
 IST = ZoneInfo("Asia/Kolkata")
 
+# A missed scheduled run only "catches up" if the backend comes online within
+# this many seconds of the configured time. Past that window the job waits for
+# the next day instead of firing immediately on startup.
+MISFIRE_GRACE_SECONDS = 3600
+
+DEFAULT_QUERIES = [
+    "dental clinics in Hyderabad",
+    "salons in Hyderabad",
+    "gyms in Hyderabad",
+    "restaurants in Hyderabad",
+    "real estate agents in Hyderabad",
+]
+
 DEFAULT_JOBS = [
     {
         "location": "Hyderabad",
-        "category": "Real Estate",
+        "category": query.split(" in ", 1)[0].strip(),
         "leads": 20,
         "time": "09:00",
         "enabled": True,
     }
+    for query in DEFAULT_QUERIES
 ]
 
 DEFAULT_SETTINGS = {
     "scheduler_enabled": "true",
     "scheduler_run_time": "09:00",
-    "scheduler_queries": json.dumps(["real estate agents in Hyderabad"]),
+    "scheduler_queries": json.dumps(DEFAULT_QUERIES),
     "scheduler_jobs": json.dumps(DEFAULT_JOBS),
     "scheduler_enrich_limit": "20",
     "scheduler_job_last_run": "{}",
@@ -874,7 +888,13 @@ def _scheduler_loop():
                     second=0,
                     microsecond=0,
                 )
-                if now >= today_candidate and run_map.get(_job_key(normalized)) != now.date().isoformat():
+                # Only fire if we are inside the misfire grace window after the
+                # scheduled time. This stops a backend restart later in the day
+                # from triggering an immediate catch-up scrape loop.
+                within_grace = (
+                    today_candidate <= now <= today_candidate + timedelta(seconds=MISFIRE_GRACE_SECONDS)
+                )
+                if within_grace and run_map.get(_job_key(normalized)) != now.date().isoformat():
                     due_jobs.append(normalized)
 
             if next_runs:

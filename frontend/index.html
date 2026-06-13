@@ -896,51 +896,63 @@ body {
         </div>
         <div style="padding:20px;display:flex;flex-direction:column;gap:16px;">
 
-          <!-- Location Row -->
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+<!-- Location Row -->
+           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
 
-            <!-- Country -->
-            <div style="position:relative;">
-              <div class="field-label">Country</div>
-              <input id="loc-country" class="search-input" placeholder="e.g. IND, India, IN..."
-                style="width:100%;font-size:13px;" oninput="autocompleteLocation('country', this.value)"
-                onfocus="showAllOptions('country')"
-                onkeydown="handleLocKey(event,'country')" autocomplete="off">
-              <div id="dd-country" class="loc-dropdown"></div>
-            </div>
+             <!-- Country Select -->
+             <div>
+               <div class="field-label">Country</div>
+               <select id="country-select" class="search-input" style="width:100%;font-size:13px;" onchange="onCountryChange()">
+                 <option value="">Select Country...</option>
+               </select>
+             </div>
 
-            <!-- State -->
-            <div style="position:relative;">
-              <div class="field-label">State / Province</div>
-              <input id="loc-state" class="search-input" placeholder="e.g. Telangana, MH..."
-                style="width:100%;font-size:13px;" oninput="autocompleteLocation('state', this.value)"
-                onfocus="showAllOptions('state')"
-                onkeydown="handleLocKey(event,'state')" autocomplete="off">
-              <div id="dd-state" class="loc-dropdown"></div>
-            </div>
+             <!-- State Select -->
+             <div>
+               <div class="field-label">State / Province</div>
+               <select id="state-select" class="search-input" style="width:100%;font-size:13px;" onchange="onStateChange()">
+                 <option value="">Select State...</option>
+               </select>
+             </div>
 
-            <!-- Suburb / City -->
-            <div style="position:relative;">
-              <div class="field-label">City / Suburb</div>
-              <input id="loc-suburb" class="search-input" placeholder="e.g. Hyderabad, Banjara Hills..."
-                style="width:100%;font-size:13px;" oninput="autocompleteLocation('suburb', this.value)"
-                onfocus="showAllOptions('suburb')"
-                onkeydown="handleLocKey(event,'suburb')" autocomplete="off">
-              <div id="dd-suburb" class="loc-dropdown"></div>
-            </div>
-          </div>
+             <!-- City Select -->
+             <div>
+               <div class="field-label">City / Suburb</div>
+               <select id="city-select" class="search-input" style="width:100%;font-size:13px;">
+                 <option value="">Select City...</option>
+               </select>
+             </div>
+           </div>
 
-          <!-- Category Row -->
-          <div>
-            <div class="field-label">Business Categories</div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;" id="category-chips">
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px;">
-              <input id="custom-category" class="search-input" placeholder="Add custom category..."
-                style="flex:1;" onkeydown="if(event.key==='Enter')addCustomCategory()">
-              <button class="btn btn-outline btn-sm" onclick="addCustomCategory()">+ Add</button>
-            </div>
-          </div>
+           <!-- Category Row -->
+           <div>
+             <div class="field-label">Business Categories <span id="selection-count" style="color:var(--accent2);font-size:11px;"></span></div>
+             <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;" id="category-chips">
+             </div>
+             <div style="position:relative;margin-top:10px;">
+               <input
+                 type="text"
+                 id="category-search-input"
+                 placeholder="Type to search categories (e.g. Cafes, Pubs, Gyms...)"
+                 autocomplete="off"
+                 oninput="onCategoryInput(this.value)"
+                 onkeydown="onCategoryKey(event)"
+                 onfocus="onCategoryInput(this.value)"
+                 style="width:100%;padding:10px 14px;background:#1a1f2e;border:1px solid #2d3748;
+                        border-radius:6px;color:#e2e8f0;font-size:13px;outline:none;"
+               />
+               <div id="category-dropdown"
+                    style="display:none;position:absolute;top:100%;left:0;right:0;
+                           background:#1a1f2e;border:1px solid #4c51bf;border-top:none;
+                           border-radius:0 0 6px 6px;max-height:200px;overflow-y:auto;
+                           z-index:1000;box-shadow:0 8px 24px rgba(0,0,0,0.4);">
+               </div>
+             </div>
+
+             <!-- Category Filter Bar (for All Leads) -->
+             <div id="category-filter-bar" style="display:none;flex-wrap:wrap;gap:8px;margin-top:12px;">
+             </div>
+           </div>
 
           <!-- Controls Row -->
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -2508,369 +2520,274 @@ async function runBatchEmailFinder() {
 // FIND LEADS — LOCATION AUTOCOMPLETE + SCRAPER
 // ─────────────────────────────────────────────
 
-const COUNTRIES = [
-  {code:'IN', name:'India', alt:['IND','INDIA','भारत']},
-  {code:'US', name:'United States', alt:['USA','US','UNITED STATES','AMERICA']},
-  {code:'GB', name:'United Kingdom', alt:['UK','GBR','BRITAIN','ENGLAND']},
-  {code:'AU', name:'Australia', alt:['AUS','AUSTRALIA','AUSSIE']},
-  {code:'CA', name:'Canada', alt:['CAN','CANADA']},
-  {code:'SG', name:'Singapore', alt:['SGP','SG']},
-  {code:'AE', name:'UAE', alt:['UAE','DUBAI','EMIRATES']},
-  {code:'NZ', name:'New Zealand', alt:['NZL','NZ']},
-];
-
-const STATES = {
-  'India': ['Telangana','Andhra Pradesh','Maharashtra','Karnataka','Tamil Nadu','Kerala',
-    'Delhi','Gujarat','Rajasthan','Uttar Pradesh','West Bengal','Punjab','Haryana',
-    'Madhya Pradesh','Bihar','Odisha','Assam','Jharkhand','Uttarakhand','Goa'],
-  'Australia': ['New South Wales','Victoria','Queensland','Western Australia',
-    'South Australia','Tasmania','ACT','Northern Territory'],
-  'United States': ['California','Texas','New York','Florida','Illinois','Pennsylvania',
-    'Ohio','Georgia','North Carolina','Michigan','Washington','Arizona'],
-  'United Kingdom': ['England','Scotland','Wales','Northern Ireland','London',
-    'Greater Manchester','West Midlands','Yorkshire'],
-};
-
-const SUBURBS = {
-  // India
-  'Telangana': ['Hyderabad','Secunderabad','Warangal','Nizamabad','Karimnagar','Banjara Hills','Jubilee Hills','Madhapur','Gachibowli','HITEC City','Kondapur','Kukatpally','LB Nagar','Dilsukhnagar','Ameerpet'],
-  'Andhra Pradesh': ['Visakhapatnam','Vijayawada','Guntur','Nellore','Kurnool','Rajahmundry','Tirupati','Kakinada','Kadapa','Anantapur'],
-  'Maharashtra': ['Mumbai','Pune','Nagpur','Nashik','Aurangabad','Thane','Navi Mumbai','Solapur','Kolhapur','Amravati'],
-  'Karnataka': ['Bangalore','Mysore','Hubli','Mangalore','Belgaum','Gulbarga','Davanagere','Shimoga','Tumkur','Bijapur'],
-  'Tamil Nadu': ['Chennai','Coimbatore','Madurai','Salem','Tiruchirappalli','Tirunelveli','Vellore','Erode','Thoothukudi','Dindigul'],
-  'Kerala': ['Kochi','Thiruvananthapuram','Kozhikode','Thrissur','Kollam','Kannur','Palakkad','Alappuzha','Malappuram','Kottayam'],
-  'Delhi': ['New Delhi','Connaught Place','Dwarka','Rohini','Saket','Laxmi Nagar','Janakpuri','Pitampura','Vasant Kunj','Karol Bagh'],
-  'Gujarat': ['Ahmedabad','Surat','Vadodara','Rajkot','Bhavnagar','Jamnagar','Gandhinagar','Anand','Morbi','Bharuch'],
-  'Rajasthan': ['Jaipur','Jodhpur','Udaipur','Kota','Ajmer','Bikaner','Alwar','Bhilwara','Sikar','Pali'],
-  'Uttar Pradesh': ['Lucknow','Kanpur','Agra','Varanasi','Meerut','Allahabad','Ghaziabad','Noida','Bareilly','Aligarh'],
-  'West Bengal': ['Kolkata','Howrah','Durgapur','Asansol','Siliguri','Bardhaman','Malda','Baharampur','Habra','Kharagpur'],
-  'Punjab': ['Ludhiana','Amritsar','Jalandhar','Patiala','Bathinda','Hoshiarpur','Mohali','Pathankot','Moga','Firozpur'],
-  'Haryana': ['Gurugram','Faridabad','Panipat','Ambala','Yamunanagar','Rohtak','Hisar','Karnal','Sonipat','Panchkula'],
-  'Madhya Pradesh': ['Bhopal','Indore','Gwalior','Jabalpur','Ujjain','Sagar','Satna','Rewa','Dewas','Ratlam'],
-  'Goa': ['Panaji','Margao','Vasco da Gama','Mapusa','Ponda','Bicholim','Curchorem','Sanquelim','Canacona','Quepem'],
-  // Australia
-  'New South Wales': ['Sydney','Newcastle','Wollongong','Parramatta','Penrith','Blacktown','Liverpool','Campbelltown','Gosford','Maitland'],
-  'Victoria': ['Melbourne','Geelong','Ballarat','Bendigo','Shepparton','Melton','Mildura','Wodonga','Warrnambool','Traralgon'],
-  'Queensland': ['Brisbane','Gold Coast','Sunshine Coast','Townsville','Cairns','Toowoomba','Rockhampton','Mackay','Bundaberg','Hervey Bay'],
-  'Western Australia': ['Perth','Fremantle','Mandurah','Bunbury','Geraldton','Albany','Kalgoorlie','Broome','Port Hedland','Karratha'],
-  'South Australia': ['Adelaide','Mount Gambier','Whyalla','Murray Bridge','Port Augusta','Port Pirie','Gawler','Port Lincoln','Victor Harbor','Naracoorte'],
-  // UK
-  'England': ['London','Manchester','Birmingham','Liverpool','Leeds','Sheffield','Bristol','Newcastle','Nottingham','Leicester'],
-  'Scotland': ['Edinburgh','Glasgow','Aberdeen','Dundee','Inverness','Perth','Stirling','Falkirk','Paisley','East Kilbride'],
-  'Wales': ['Cardiff','Swansea','Newport','Wrexham','Barry','Neath','Bridgend','Pontypridd','Llanelli','Caerphilly'],
-  // USA
-  'California': ['Los Angeles','San Francisco','San Diego','San Jose','Sacramento','Fresno','Oakland','Santa Ana','Anaheim','Riverside'],
-  'Texas': ['Houston','Dallas','San Antonio','Austin','Fort Worth','El Paso','Arlington','Corpus Christi','Plano','Lubbock'],
-  'New York': ['New York City','Buffalo','Rochester','Yonkers','Syracuse','Albany','New Rochelle','Mount Vernon','Schenectady','Utica'],
-  'Florida': ['Miami','Orlando','Tampa','Jacksonville','St. Petersburg','Hialeah','Tallahassee','Fort Lauderdale','Port St. Lucie','Cape Coral'],
-  'Illinois': ['Chicago','Aurora','Rockford','Joliet','Naperville','Springfield','Peoria','Elgin','Waukegan','Cicero'],
-};
-
-const CATEGORIES = [
-  { label: '🏠 Real Estate', value: 'real estate agents' },
-  { label: '🦷 Dental Clinics', value: 'dental clinics' },
-  { label: '🏋️ Gyms', value: 'gyms and fitness centers' },
-  { label: '💇 Salons', value: 'beauty salons' },
-  { label: '🏨 Hotels', value: 'hotels' },
-  { label: '🍽️ Restaurants', value: 'restaurants' },
-  { label: '📚 Coaching', value: 'coaching centres' },
-  { label: '⚖️ CA Firms', value: 'chartered accountants' },
-  { label: '🏥 Clinics', value: 'medical clinics' },
-  { label: '🎨 Interiors', value: 'interior designers' },
-  { label: '🔧 Plumbers', value: 'plumbers' },
-  { label: '📸 Photography', value: 'photographers' },
-];
+// Legacy COUNTRIES/STATES/SUBURBS/CATEGORIES constants removed in Phase 1C —
+// replaced by GEO_DATA + ALL_CATEGORIES below.
 
 let selectedCategories = new Set();
-let scrapeInterval = null;
-let locData = { country: '', state: '', suburb: '' };
+
+// Cascading geo data (country -> states -> cities)
+const GEO_DATA = {
+  "India": {
+    states: ["Telangana","Andhra Pradesh","Maharashtra","Karnataka",
+             "Tamil Nadu","Kerala","Gujarat","Rajasthan","Delhi",
+             "West Bengal","Punjab","Haryana","Uttar Pradesh","Goa",
+             "Madhya Pradesh","Bihar","Odisha","Assam","Himachal Pradesh"],
+    cities: {
+      "Telangana": ["Hyderabad","Warangal","Nizamabad","Karimnagar","Khammam"],
+      "Maharashtra": ["Mumbai","Pune","Nagpur","Nashik","Aurangabad"],
+      "Karnataka": ["Bangalore","Mysore","Hubli","Mangalore","Belgaum"],
+      "Tamil Nadu": ["Chennai","Coimbatore","Madurai","Salem","Trichy"],
+      "Kerala": ["Kochi","Thiruvananthapuram","Kozhikode","Thrissur"],
+      "Delhi": ["New Delhi","Dwarka","Rohini","Saket","Lajpat Nagar"],
+      "Gujarat": ["Ahmedabad","Surat","Vadodara","Rajkot"],
+    }
+  },
+  "Australia": {
+    states: ["New South Wales","Victoria","Queensland","Western Australia",
+             "South Australia","Tasmania","ACT","Northern Territory"],
+    cities: {
+      "New South Wales": ["Sydney","Newcastle","Wollongong","Central Coast"],
+      "Victoria": ["Melbourne","Geelong","Ballarat","Bendigo"],
+      "Queensland": ["Brisbane","Gold Coast","Sunshine Coast","Townsville"],
+      "Western Australia": ["Perth","Fremantle","Mandurah"],
+    }
+  },
+  "United States": {
+    states: ["California","Texas","New York","Florida","Illinois",
+             "Pennsylvania","Ohio","Georgia","Michigan","Washington"],
+    cities: {
+      "California": ["Los Angeles","San Francisco","San Diego","San Jose","Sacramento"],
+      "Texas": ["Houston","Dallas","Austin","San Antonio","Fort Worth"],
+      "New York": ["New York City","Buffalo","Albany","Rochester"],
+      "Florida": ["Miami","Orlando","Tampa","Jacksonville"],
+    }
+  },
+  "United Kingdom": {
+    states: ["England","Scotland","Wales","Northern Ireland"],
+    cities: {
+      "England": ["London","Manchester","Birmingham","Leeds","Bristol","Sheffield"],
+      "Scotland": ["Glasgow","Edinburgh","Aberdeen","Dundee"],
+      "Wales": ["Cardiff","Swansea","Newport"],
+    }
+  },
+  "Canada": {
+    states: ["Ontario","British Columbia","Quebec","Alberta","Manitoba"],
+    cities: {
+      "Ontario": ["Toronto","Ottawa","Mississauga","Brampton","Hamilton"],
+      "British Columbia": ["Vancouver","Victoria","Surrey","Burnaby"],
+      "Quebec": ["Montreal","Quebec City","Laval","Gatineau"],
+      "Alberta": ["Calgary","Edmonton","Red Deer"],
+    }
+  },
+  "UAE": {
+    states: ["Dubai","Abu Dhabi","Sharjah","Ajman","Fujairah"],
+    cities: {
+      "Dubai": ["Downtown Dubai","Deira","Bur Dubai","JBR","Business Bay"],
+      "Abu Dhabi": ["Abu Dhabi City","Al Ain","Al Ruwais"],
+    }
+  },
+  "Singapore": {
+    states: ["Central","East","North","North-East","West"],
+    cities: {
+      "Central": ["Orchard","Marina Bay","Chinatown","Little India"],
+      "East": ["Tampines","Bedok","Changi"],
+    }
+  }
+};
+
+const ALL_CATEGORIES = [
+  "Cafes","Coffee Shops","Pubs","Bars","Nightclubs","Restaurants",
+  "Fast Food","Bakeries","Sweet Shops","Juice Bars","Ice Cream Parlours",
+  "Dental Clinics","Hospitals","Clinics","Pharmacies","Physiotherapy",
+  "Gyms","Yoga Studios","Fitness Centers","Crossfit","Martial Arts",
+  "Salons","Barbers","Spa","Beauty Parlours","Nail Studios","Makeup Artists",
+  "Hotels","Guest Houses","Resorts","Service Apartments","Hostels",
+  "Real Estate Agents","Property Dealers","Interior Designers","Architects",
+  "CA Firms","Chartered Accountants","Tax Consultants","Lawyers","Advocates",
+  "Coaching Centers","Tutors","Schools","Colleges","Play Schools",
+  "Photography Studios","Videographers","Event Managers","Wedding Planners",
+  "Plumbers","Electricians","Carpenters","Painters","AC Repair","CCTV",
+  "Car Dealers","Bike Dealers","Auto Repair","Car Wash","Driving Schools",
+  "Supermarkets","Grocery Stores","Organic Stores","Medical Shops",
+  "IT Companies","Software Companies","Digital Marketing Agencies",
+  "Caterers","Tiffin Services","Cloud Kitchens","Food Trucks",
+  "Veterinary Clinics","Pet Shops","Pet Grooming",
+  "Travel Agents","Tour Operators","Visa Consultants",
+  "Courier Services","Logistics","Packers and Movers"
+];
 
 function initFindLeads() {
+  populateCountrySelect();
+  // Default: India -> Telangana -> Hyderabad
+  const cs = document.getElementById('country-select');
+  cs.value = 'India';
+  onCountryChange();
+  const ss = document.getElementById('state-select');
+  if ([...ss.options].some(o => o.value === 'Telangana')) {
+    ss.value = 'Telangana';
+    onStateChange();
+    const ci = document.getElementById('city-select');
+    if ([...ci.options].some(o => o.value === 'Hyderabad')) ci.value = 'Hyderabad';
+  }
+  selectedCategories.clear();
   renderCategoryChips();
-  // Auto-detect India as default
-  setTimeout(() => {
-    document.getElementById('loc-country').value = 'India';
-    locData.country = 'India';
-    document.getElementById('loc-state').value = 'Telangana';
-    locData.state = 'Telangana';
-    document.getElementById('loc-suburb').value = 'Hyderabad';
-    locData.suburb = 'Hyderabad';
-  }, 100);
+}
+
+function populateCountrySelect() {
+  const cs = document.getElementById('country-select');
+  cs.innerHTML = '<option value="">Select Country...</option>' +
+    Object.keys(GEO_DATA).map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+function onCountryChange() {
+  const country = document.getElementById('country-select').value;
+  const ss = document.getElementById('state-select');
+  const ci = document.getElementById('city-select');
+  ci.innerHTML = '<option value="">Select City...</option>';
+  if (!country || !GEO_DATA[country]) {
+    ss.innerHTML = '<option value="">Select State...</option>';
+    return;
+  }
+  ss.innerHTML = '<option value="">Select State...</option>' +
+    GEO_DATA[country].states.map(s => `<option value="${s}">${s}</option>`).join('');
+}
+
+function onStateChange() {
+  const country = document.getElementById('country-select').value;
+  const state = document.getElementById('state-select').value;
+  const ci = document.getElementById('city-select');
+  const cities = (GEO_DATA[country] && GEO_DATA[country].cities && GEO_DATA[country].cities[state]) || [];
+  ci.innerHTML = '<option value="">Select City...</option>' +
+    cities.map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+// ── Category autocomplete ──
+function _escq(s) { return String(s).replace(/'/g, "\\'"); }
+
+function onCategoryInput(val) {
+  const dd = document.getElementById('category-dropdown');
+  const q = (val || '').trim().toLowerCase();
+  if (!q) { dd.style.display = 'none'; return; }
+  const matches = ALL_CATEGORIES
+    .filter(c => c.toLowerCase().includes(q) && !selectedCategories.has(c))
+    .slice(0, 8);
+  if (!matches.length) { dd.style.display = 'none'; return; }
+  dd.innerHTML = matches.map(c =>
+    `<div class="cat-opt" style="padding:9px 14px;cursor:pointer;font-size:13px;color:#e2e8f0;"
+        onmousedown="event.preventDefault();addCategory('${_escq(c)}')"
+        onmouseover="this.style.background='#252b3b'" onmouseout="this.style.background=''">${c}</div>`
+  ).join('');
+  dd.style.display = 'block';
+}
+
+function onCategoryKey(e) {
+  const dd = document.getElementById('category-dropdown');
+  if (e.key === 'Escape') { dd.style.display = 'none'; return; }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const first = dd.querySelector('.cat-opt');
+    if (first && dd.style.display !== 'none') {
+      first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    } else {
+      const val = (e.target.value || '').trim();
+      if (val) addCategory(val);
+    }
+  }
+}
+
+function addCategory(cat) {
+  cat = (cat || '').trim();
+  if (!cat) return;
+  selectedCategories.add(cat);
+  document.getElementById('category-search-input').value = '';
+  document.getElementById('category-dropdown').style.display = 'none';
+  renderCategoryChips();
+}
+
+function removeCategory(cat) {
+  selectedCategories.delete(cat);
+  renderCategoryChips();
 }
 
 function renderCategoryChips() {
   const el = document.getElementById('category-chips');
-  el.innerHTML = CATEGORIES.map(c => `
-    <div class="cat-chip ${selectedCategories.has(c.value) ? 'active' : ''}"
-      onclick="toggleCategory('${c.value}', this)">
-      ${c.label}
+  const count = document.getElementById('selection-count');
+  if (count) count.textContent = selectedCategories.size ? `(${selectedCategories.size} selected)` : '';
+  if (!selectedCategories.size) { el.innerHTML = ''; return; }
+  el.innerHTML = [...selectedCategories].map(c => `
+    <div class="cat-chip active" onclick="removeCategory('${_escq(c)}')" title="Click to remove">
+      ${c} <span class="remove">×</span>
     </div>
   `).join('');
 }
 
-function toggleCategory(value, el) {
-  if (selectedCategories.has(value)) {
-    selectedCategories.delete(value);
-    el.classList.remove('active');
-  } else {
-    selectedCategories.add(value);
-    el.classList.add('active');
-  }
-}
-
-function addCustomCategory() {
-  const input = document.getElementById('custom-category');
-  const val = input.value.trim();
-  if (!val) return;
-  selectedCategories.add(val);
-  const chip = document.createElement('div');
-  chip.className = 'cat-chip active';
-  chip.innerHTML = `${val} <span class="remove" onclick="this.parentElement.remove();selectedCategories.delete('${val}')">×</span>`;
-  document.getElementById('category-chips').appendChild(chip);
-  input.value = '';
-}
-
-// ── Smart Location Autocomplete ──
-
-function autocompleteLocation(type, val) {
-  const dd = document.getElementById(`dd-${type}`);
-  if (!val || val.length < 1) { dd.classList.remove('open'); return; }
-
-  const upper = val.toUpperCase().trim();
-  let options = [];
-
-  if (type === 'country') {
-    options = COUNTRIES.filter(c =>
-      c.name.toUpperCase().includes(upper) ||
-      c.code.includes(upper) ||
-      c.alt.some(a => a.includes(upper))
-    ).map(c => ({ display: `${c.name} <span style="color:var(--text3)">${c.code}</span>`, value: c.name }));
-  }
-  else if (type === 'state') {
-    const country = document.getElementById('loc-country').value.trim() || locData.country || 'India';
-    const list = STATES[country] || Object.values(STATES).flat();
-    options = list.filter(s => s.toUpperCase().includes(upper))
-      .map(s => ({ display: s, value: s }));
-    if (options.length < 3) fetchGooglePlaces(type, val, country);
-  }
-  else if (type === 'suburb') {
-    const state = document.getElementById('loc-state').value.trim() || locData.state || '';
-    let list = SUBURBS[state] || [];
-    if (!list.length) {
-      const stateKey = Object.keys(SUBURBS).find(k => k.toLowerCase().includes(state.toLowerCase()));
-      list = stateKey ? SUBURBS[stateKey] : Object.values(SUBURBS).flat();
-    }
-    options = list.filter(s => s.toUpperCase().includes(upper))
-      .map(s => ({ display: s, value: s }));
-    if (options.length < 3) fetchGooglePlaces(type, val, locData.country);
-  }
-
-  if (options.length === 0) { dd.classList.remove('open'); return; }
-
-  dd.innerHTML = options.slice(0, 8).map(o =>
-    `<div class="loc-option" onclick="selectLocation('${type}','${o.value}')">${o.display}</div>`
-  ).join('');
-  dd.classList.add('open');
-}
-
-async function fetchGooglePlaces(type, query, country) {
-  // Use Google Places Autocomplete via backend
-  try {
-    const res = await fetch(`${API}/autocomplete-location?query=${encodeURIComponent(query)}&country=${encodeURIComponent(country)}&type=${type}`).then(r => r.json());
-    if (res.suggestions && res.suggestions.length) {
-      const dd = document.getElementById(`dd-${type}`);
-      const existing = dd.querySelectorAll('.loc-option').length;
-      res.suggestions.forEach(s => {
-        const opt = document.createElement('div');
-        opt.className = 'loc-option';
-        opt.innerHTML = s;
-        opt.onclick = () => selectLocation(type, s.replace(/<[^>]*>/g,''));
-        dd.appendChild(opt);
-      });
-      if (existing + res.suggestions.length > 0) dd.classList.add('open');
-    }
-  } catch(e) {}
-}
-
-function showAllOptions(type) {
-  const dd = document.getElementById(`dd-${type}`);
-  let options = [];
-
-  if (type === 'country') {
-    options = COUNTRIES.map(c => ({
-      display: `${c.name} <span style="color:var(--text3);font-size:11px">${c.code}</span>`,
-      value: c.name
-    }));
-  } else if (type === 'state') {
-    // Always read live from input + locData
-    const country = document.getElementById('loc-country').value.trim() || locData.country || 'India';
-    locData.country = country;
-    const list = STATES[country] || STATES['India'];
-    options = list.map(s => ({ display: s, value: s }));
-  } else if (type === 'suburb') {
-    // Always read live from input + locData
-    const state = document.getElementById('loc-state').value.trim() || locData.state || '';
-    locData.state = state;
-    // Try exact match first, then partial
-    let list = SUBURBS[state] || [];
-    if (!list.length) {
-      // Try partial match
-      const stateKey = Object.keys(SUBURBS).find(k => k.toLowerCase().includes(state.toLowerCase()) || state.toLowerCase().includes(k.toLowerCase()));
-      list = stateKey ? SUBURBS[stateKey] : [];
-    }
-    if (!list.length) list = ['Please select a state first'];
-    options = list.map(s => ({ display: s, value: s }));
-  }
-
-  if (!options.length) return;
-  dd.innerHTML = options.map(o =>
-    `<div class="loc-option" onclick="selectLocation('${type}','${o.value}')">${o.display}</div>`
-  ).join('');
-  dd.classList.add('open');
-}
-
-function selectLocation(type, value) {
-  document.getElementById(`loc-${type}`).value = value;
-  document.getElementById(`dd-${type}`).classList.remove('open');
-  locData[type] = value;
-
-  if (type === 'country') {
-    locData.country = value;
-    document.getElementById('loc-state').value = '';
-    document.getElementById('loc-suburb').value = '';
-    locData.state = '';
-    locData.suburb = '';
-    setTimeout(() => {
-      document.getElementById('loc-state').focus();
-      showAllOptions('state');
-    }, 150);
-  }
-  if (type === 'state') {
-    locData.state = value;
-    document.getElementById('loc-suburb').value = '';
-    locData.suburb = '';
-    setTimeout(() => {
-      document.getElementById('loc-suburb').focus();
-      showAllOptions('suburb');
-    }, 150);
-  }
-  if (type === 'suburb') {
-    locData.suburb = value;
-  }
-}
-
-function handleLocKey(e, type) {
-  const dd = document.getElementById(`dd-${type}`);
-  if (e.key === 'Escape') { dd.classList.remove('open'); return; }
-  if (e.key === 'Enter') {
-    const first = dd.querySelector('.loc-option');
-    if (first) first.click();
-  }
-  // Update locData on blur
-  locData[type] = document.getElementById(`loc-${type}`).value;
-}
-
-// Close dropdowns on outside click
+// Close category dropdown on outside click
 document.addEventListener('click', e => {
-  if (!e.target.closest('.loc-dropdown') && !e.target.id?.startsWith('loc-')) {
-    document.querySelectorAll('.loc-dropdown').forEach(d => d.classList.remove('open'));
-    // Save current values
-    ['country','state','suburb'].forEach(t => {
-      locData[t] = document.getElementById(`loc-${t}`)?.value || locData[t];
-    });
+  if (!e.target.closest('#category-search-input') && !e.target.closest('#category-dropdown')) {
+    const dd = document.getElementById('category-dropdown');
+    if (dd) dd.style.display = 'none';
   }
 });
 
 // ── Scraper ──
 
 async function startScrape() {
-  // Validate
-  const country = document.getElementById('loc-country').value.trim();
-  const state = document.getElementById('loc-state').value.trim();
-  const suburb = document.getElementById('loc-suburb').value.trim();
+  const country = document.getElementById('country-select').value.trim();
+  const state = document.getElementById('state-select').value.trim();
+  const city = document.getElementById('city-select').value.trim();
 
-  if (!suburb) { toast('Enter a city or suburb first', '⚠️'); return; }
-  if (selectedCategories.size === 0) { toast('Select at least one category', '⚠️'); return; }
+  if (!city) { toast('Select a city first', '⚠️'); return; }
+  if (selectedCategories.size === 0) { toast('Add at least one category', '⚠️'); return; }
 
-  const maxResults = parseInt(document.getElementById('max-results').value);
-  const categories = [...selectedCategories];
+  const maxResults = parseInt(document.getElementById('max-results').value) || 20;
+  const query = [...selectedCategories].join(', ');
 
-  // Update UI
-  document.getElementById('scrape-btn').disabled = true;
-  document.getElementById('scrape-btn').textContent = '⏳ Searching...';
+  // Clear Found Leads panel immediately at start
+  const btn = document.getElementById('scrape-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Searching...';
   document.getElementById('scrape-progress').style.display = 'block';
-  document.getElementById('progress-label').textContent = `Searching ${categories.length} categories in ${suburb}...`;
-  document.getElementById('progress-bar').style.width = '5%';
-
-  // Clear previous results
-  document.getElementById('found-leads-list').innerHTML = '<div class="loading"><div class="spinner"></div>Scraping live data...</div>';
+  document.getElementById('progress-label').textContent =
+    `Searching ${selectedCategories.size} categories in ${city}...`;
+  document.getElementById('progress-bar').style.width = '40%';
+  document.getElementById('found-leads-list').innerHTML =
+    '<div style="color:var(--text3);padding:20px;text-align:center;font-size:13px;">Searching...</div>';
   document.getElementById('scrape-status-badge').textContent = 'Running...';
 
   try {
-    const res = await fetch(`${API}/scrape-leads`, {
+    const res = await fetch(`${API}/leads/scrape`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ country, state, suburb, categories, max_per_query: maxResults })
+      body: JSON.stringify({ query, country, state, city, max_results: maxResults })
     }).then(r => r.json());
 
-    if (!res.success) {
-      toast('Scrape failed — check API key', '❌');
+    document.getElementById('progress-bar').style.width = '100%';
+
+    if (!res || res.success === false) {
+      const msg = (res && res.detail) || 'Scrape failed — check the Google API key in Settings';
+      toast(msg, '❌');
+      document.getElementById('found-leads-list').innerHTML =
+        '<div class="empty-state"><div class="empty-title">Scrape failed</div><div class="empty-sub">' + msg + '</div></div>';
+      document.getElementById('scrape-status-badge').textContent = '❌ Failed';
       resetScrapeBtn();
       return;
     }
 
-    // Poll for completion
-    let attempts = 0;
-    const maxAttempts = 60; // 5 min timeout
-    let progress = 5;
+    const leads = res.leads || [];
+    document.getElementById('scrape-status-badge').textContent =
+      `✅ ${res.total_found} found · ${res.new_leads} new`;
+    document.getElementById('progress-label').textContent =
+      `Done! ${res.total_found} businesses · ${res.new_leads} new leads added`;
 
-    scrapeInterval = setInterval(async () => {
-      attempts++;
-      progress = Math.min(90, 5 + (attempts / maxAttempts) * 85);
-      document.getElementById('progress-bar').style.width = progress + '%';
+    displayFoundLeads(leads);
+    showLeadsOnMap(leads, city, state, country);
 
-      const status = await fetch(`${API}/scrape-status`).then(r => r.json());
-
-      if (status.result) {
-        clearInterval(scrapeInterval);
-        document.getElementById('progress-bar').style.width = '100%';
-        
-        const r = status.result;
-        document.getElementById('scrape-status-badge').textContent =
-          `✅ ${r.imported} imported · ${r.skipped} skipped · ${r.total} total`;
-        document.getElementById('progress-label').textContent =
-          `Done! Found ${r.total} businesses · ${r.imported} new leads added`;
-
-        // Show results
-        await showFoundLeads();
-        
-        // Show map
-        if (status.map_leads && status.map_leads.length > 0) {
-          showLeadsOnMap(status.map_leads, suburb, state, country);
-        }
-
-        resetScrapeBtn();
-        toast(`🎯 Found ${r.imported} new leads in ${suburb}!`, '✅');
-
-        // Clear the result so next scrape works
-        setTimeout(() => {
-          fetch(`${API}/settings`, {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({key: 'last_scrape_result', value: ''})
-          });
-        }, 3000);
-      }
-
-      if (attempts >= maxAttempts) {
-        clearInterval(scrapeInterval);
-        resetScrapeBtn();
-        toast('Scrape timed out — check results in All Leads', '⚠️');
-      }
-    }, 5000);
-
-  } catch(e) {
+    resetScrapeBtn();
+    toast(`🎯 Found ${res.total_found} businesses (${res.new_leads} new) in ${city}!`, '✅');
+  } catch (e) {
     toast('Connection error — is the server running?', '❌');
+    document.getElementById('found-leads-list').innerHTML =
+      '<div class="empty-state"><div class="empty-title">Connection error</div></div>';
     resetScrapeBtn();
   }
 }
@@ -2881,81 +2798,65 @@ function resetScrapeBtn() {
   btn.textContent = '🚀 Find Leads';
 }
 
-async function showFoundLeads() {
-  const res = await fetch(`${API}/leads?limit=30&offset=0`).then(r => r.json());
-  const leads = res.leads.slice(0, 15);
-  const container = document.getElementById('found-leads-list');
-  document.getElementById('map-count').textContent = `${res.total} leads`;
+function displayFoundLeads(leads) {
+   const container = document.getElementById('found-leads-list');
+   if (!leads || leads.length === 0) {
+     container.innerHTML = '<div class="empty-state"><div class="empty-title">No leads found</div></div>';
+     return;
+   }
+   container.innerHTML = leads.map(l => `
+     <div style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;"
+       onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''"
+       ${l.id ? `onclick="openLeadFromFindPage(${l.id})"` : ''}>
+       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+         <div style="overflow:hidden;">
+           <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${l.name}</div>
+           <div style="font-size:11px;color:var(--text3);margin-top:2px;">${l.business_type || ''}</div>
+         </div>
+         <span style="font-size:11px;font-family:'DM Mono',monospace;color:${l.score>=60?'var(--green)':l.score>=40?'var(--yellow)':'var(--text3)'};flex-shrink:0">${l.score}</span>
+       </div>
+       <div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--text3);">
+         ${l.phone ? `<span>📞 ${l.phone}</span>` : ''}
+         ${l.email ? `<span style="color:var(--green)">✉ ${l.email}</span>` : ''}
+       </div>
+     </div>
+   `).join('');
+ }
 
-  if (!leads.length) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-title">No leads found</div></div>';
-    return;
-  }
-
-  container.innerHTML = leads.map(l => `
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;"
-      onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''"
-      onclick="openLeadFromFindPage(${l.id})">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-        <div style="overflow:hidden;">
-          <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${l.name}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px;">${l.business_type || ''}</div>
-        </div>
-        <span style="font-size:11px;font-family:'DM Mono',monospace;color:${l.score>=60?'var(--green)':l.score>=40?'var(--yellow)':'var(--text3)'};flex-shrink:0">${l.score}</span>
-      </div>
-      <div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--text3);">
-        ${l.phone ? `<span>📞 ${l.phone}</span>` : ''}
-        ${l.email ? `<span style="color:var(--green)">✉ ${l.email}</span>` : ''}
-      </div>
-    </div>
-  `).join('');
-}
-
-function showLeadsOnMap(leads, suburb, state, country) {
+function showLeadsOnMap(leads, city, state, country) {
   const mapPlaceholder = document.getElementById('map-placeholder');
   const mapIframe = document.getElementById('map-iframe');
+
+  // Prefer a real lead address; fall back to the searched location string.
+  const firstWithAddr = (leads || []).find(l => l.address);
+  const locationStr = [city, state, country].filter(Boolean).join(', ');
+  const address = (firstWithAddr && firstWithAddr.address) || locationStr;
 
   mapPlaceholder.style.display = 'none';
   mapIframe.style.display = 'block';
   mapIframe.style.border = 'none';
-  mapIframe.src = 'https://www.openstreetmap.org/export/embed.html?bbox=78.2,17.2,78.7,17.6&layer=mapnik&marker=17.3850,78.4867';
-  
-  buildOSMEmbed(suburb, state, country, leads.length);
-  document.getElementById('map-count').textContent = `${leads.length} leads · ${suburb}`;
-}
 
-async function buildOSMEmbed(suburb, state, country, leadCount) {
-  try {
-    const q = encodeURIComponent(`${suburb}, ${state || ''}, ${country}`);
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`, {
-      headers: {'Accept': 'application/json'}
-    });
-    const data = await res.json();
-    
-    const mapIframe = document.getElementById('map-iframe');
-    if (data && data[0]) {
-      const lat = parseFloat(data[0].lat);
-      const lon = parseFloat(data[0].lon);
-      const delta = 0.08; // zoom level
-      const bbox = `${lon-delta},${lat-delta},${lon+delta},${lat+delta}`;
-      mapIframe.src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik`;
-    } else {
-      mapIframe.src = `https://www.openstreetmap.org/export/embed.html?bbox=78.2,17.2,78.7,17.6&layer=mapnik`;
-    }
-  } catch(e) {
-    const mapIframe = document.getElementById('map-iframe');
-    mapIframe.src = `https://www.openstreetmap.org/export/embed.html?bbox=78.2,17.2,78.7,17.6&layer=mapnik`;
+  if (address) {
+    // Google Maps embed (CSP allows frame-src https://maps.google.com)
+    mapIframe.src = `https://maps.google.com/maps?q=${encodeURIComponent(address)}&output=embed`;
+  } else {
+    // OSM fallback when no address is available
+    mapIframe.src = 'https://www.openstreetmap.org/export/embed.html?bbox=78.2,17.2,78.7,17.6&layer=mapnik';
   }
+
+  document.getElementById('map-count').textContent =
+    `${(leads || []).length} leads${city ? ' · ' + city : ''}`;
 }
 
 function clearAll() {
-  document.getElementById('loc-country').value = '';
-  document.getElementById('loc-state').value = '';
-  document.getElementById('loc-suburb').value = '';
-  locData = { country: '', state: '', suburb: '' };
+  const cs = document.getElementById('country-select');
+  if (cs) cs.value = '';
+  onCountryChange();
+  document.getElementById('category-search-input').value = '';
+  document.getElementById('category-dropdown').style.display = 'none';
   selectedCategories.clear();
   renderCategoryChips();
-  document.getElementById('found-leads-list').innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No results yet</div></div>`;
+  document.getElementById('found-leads-list').innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No results yet</div><div class="empty-sub">Set location + categories and click Find Leads</div></div>`;
   document.getElementById('scrape-progress').style.display = 'none';
   document.getElementById('map-placeholder').style.display = 'flex';
   document.getElementById('map-iframe').style.display = 'none';

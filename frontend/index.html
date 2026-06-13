@@ -862,6 +862,7 @@ body {
         </div>
         <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
           <div class="stat-label">Pending Approvals</div><div class="stat-value" id="ls-approvals">—</div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:6px;font-size:11px;padding:3px 8px;" onclick="approveAllPending()">Approve all</button>
         </div>
         <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
           <div class="stat-label">Emails Sent Today</div><div class="stat-value" id="ls-emails">—</div>
@@ -1724,9 +1725,10 @@ async function bulkPausePending() {
 // ─────────────────────────────────────────────
 // LEADS
 // ─────────────────────────────────────────────
+let leadsMaster = [];   // full set for the current status/search/sort (category filtered client-side)
+
 function loadLeadsView() {
   loadLeadStats();
-  loadCategoryBar();
   loadLeads();
 }
 
@@ -1742,59 +1744,75 @@ async function loadLeadStats() {
   } catch (e) {}
 }
 
-async function loadCategoryBar() {
-  const bar = document.getElementById('leads-category-bar');
-  if (!bar) return;
-  try {
-    const res = await fetch(`${API}/leads?limit=1000`).then(r => r.json());
-    const counts = {};
-    (res.leads || []).forEach(l => {
-      const c = ((l.business_type || '').trim()) || 'Uncategorized';
-      counts[c] = (counts[c] || 0) + 1;
-    });
-    const total = res.total ?? (res.leads || []).length;
-    const cats = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-    let html = `<div class="lead-cat-chip ${currentCategory === 'all' ? 'active' : ''}" onclick="filterByCategory('all')">All <span style="opacity:.6">${total}</span></div>`;
-    html += cats.map(([c, n]) =>
-      `<div class="lead-cat-chip ${currentCategory === c ? 'active' : ''}" onclick="filterByCategory('${_escq(c)}')">${c} <span style="opacity:.6">${n}</span></div>`
-    ).join('');
-    bar.innerHTML = html;
-  } catch (e) { bar.innerHTML = ''; }
-}
-
-function filterByCategory(cat) {
-  currentCategory = cat;
-  loadCategoryBar();
-  loadLeads();
-}
-
+// One fetch per status/search/sort change; category filtering happens in-memory.
 async function loadLeads() {
   const container = document.getElementById('leads-list');
   container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
   try {
-    const params = new URLSearchParams({ limit: 200, offset: 0, sort: currentSort });
+    const params = new URLSearchParams({ limit: 500, offset: 0, sort: currentSort });
     if (currentFilter !== 'all') params.append('status', currentFilter);
-    if (currentCategory !== 'all') params.append('category', currentCategory);
     if (searchQuery) params.append('search', searchQuery);
 
     const res = await fetch(`${API}/leads?${params}`).then(r => r.json());
-    allLeads = res.leads || [];
-
-    if (allLeads.length === 0) {
-      container.innerHTML = `<div class="empty-state">
-        <div class="empty-icon">🔍</div>
-        <div class="empty-title">No leads found</div>
-        <div class="empty-sub">Try a different filter or import leads first</div>
-      </div>`;
-      updateSelectionUI();
-      return;
-    }
-
-    container.innerHTML = allLeads.map(l => renderLeadRow(l)).join('');
-    updateSelectionUI();
+    leadsMaster = res.leads || [];
+    buildCategoryBar();
+    renderLeadsTable();
   } catch(e) {
     container.innerHTML = `<div class="empty-state"><div class="empty-title">Error loading leads</div></div>`;
   }
+}
+
+// Build category chips from the in-memory set (no extra API call).
+function buildCategoryBar() {
+  const bar = document.getElementById('leads-category-bar');
+  if (!bar) return;
+  const counts = {};
+  leadsMaster.forEach(l => {
+    const c = ((l.business_type || '').trim()) || 'Uncategorized';
+    counts[c] = (counts[c] || 0) + 1;
+  });
+  const cats = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  let html = `<div class="lead-cat-chip ${currentCategory === 'all' ? 'active' : ''}" onclick="filterByCategory('all')">All <span style="opacity:.6">${leadsMaster.length}</span></div>`;
+  html += cats.map(([c, n]) =>
+    `<div class="lead-cat-chip ${currentCategory === c ? 'active' : ''}" onclick="filterByCategory('${_escq(c)}')">${c} <span style="opacity:.6">${n}</span></div>`
+  ).join('');
+  bar.innerHTML = html;
+}
+
+// Apply the active category to the in-memory set and render.
+function renderLeadsTable() {
+  const container = document.getElementById('leads-list');
+  allLeads = currentCategory === 'all'
+    ? leadsMaster
+    : leadsMaster.filter(l => (((l.business_type || '').trim()) || 'Uncategorized') === currentCategory);
+
+  if (allLeads.length === 0) {
+    container.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">No leads found</div>
+      <div class="empty-sub">Try a different filter or import leads first</div>
+    </div>`;
+    updateSelectionUI();
+    return;
+  }
+  container.innerHTML = allLeads.map(l => renderLeadRow(l)).join('');
+  updateSelectionUI();
+}
+
+// Category chips filter the loaded array client-side — no re-fetch.
+function filterByCategory(cat) {
+  currentCategory = cat;
+  buildCategoryBar();
+  renderLeadsTable();
+}
+
+async function approveAllPending() {
+  if (!confirm('Approve ALL leads currently pending review?')) return;
+  try {
+    const res = await fetch(`${API}/bulk-approve`, { method: 'POST' }).then(r => r.json());
+    toast(`Approved ${res.approved ?? 0} lead(s)`, '✅');
+    loadLeadsView();
+  } catch (e) { toast('Bulk approve failed', '❌'); }
 }
 
 function rerenderLeads() {
@@ -1805,7 +1823,7 @@ function rerenderLeads() {
 }
 
 function renderLeadRow(l) {
-  var sc = l.score >= 60 ? 'var(--green)' : l.score >= 40 ? 'var(--yellow)' : 'var(--text3)';
+  var sc = l.score >= 75 ? 'var(--green)' : l.score >= 50 ? 'var(--yellow)' : 'var(--text3)';
   var em = l.email ? '&#10003; ' + l.email : '&mdash;';
   var emColor = l.email ? 'color:var(--green)' : 'color:var(--text3)';
   var checked = selectedLeadIds.has(l.id) ? ' checked' : '';
@@ -2991,16 +3009,19 @@ async function startScrape() {
   document.getElementById('scrape-status-badge').textContent = 'Running...';
 
   try {
-    const res = await fetch(`${API}/leads/scrape`, {
+    const resp = await fetch(`${API}/leads/scrape`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, country, state, city, max_results: maxResults })
-    }).then(r => r.json());
+    });
+    const res = await resp.json().catch(() => ({}));
 
     document.getElementById('progress-bar').style.width = '100%';
 
-    if (!res || res.success === false) {
-      const msg = (res && res.detail) || 'Scrape failed — check the Google API key in Settings';
+    // FastAPI errors return {detail} with no success flag — treat anything that
+    // isn't an explicit success with a leads array as a failure (surfaces the real reason).
+    if (!resp.ok || !res || res.success !== true || !Array.isArray(res.leads)) {
+      const msg = (res && res.detail) || `Scrape failed (HTTP ${resp.status}) — check the Google API key in Settings`;
       toast(msg, '❌');
       document.getElementById('found-leads-list').innerHTML =
         '<div class="empty-state"><div class="empty-title">Scrape failed</div><div class="empty-sub">' + msg + '</div></div>';
@@ -3049,7 +3070,7 @@ function displayFoundLeads(leads) {
            <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${l.name}</div>
            <div style="font-size:11px;color:var(--text3);margin-top:2px;">${l.business_type || ''}</div>
          </div>
-         <span style="font-size:11px;font-family:'DM Mono',monospace;color:${l.score>=60?'var(--green)':l.score>=40?'var(--yellow)':'var(--text3)'};flex-shrink:0">${l.score}</span>
+         <span style="font-size:11px;font-family:'DM Mono',monospace;color:${l.score>=75?'var(--green)':l.score>=50?'var(--yellow)':'var(--text3)'};flex-shrink:0">${l.score}</span>
        </div>
        <div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--text3);">
          ${l.phone ? `<span>📞 ${l.phone}</span>` : ''}

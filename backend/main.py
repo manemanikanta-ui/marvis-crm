@@ -84,6 +84,54 @@ def get_db():
 def outbound_allowed(status: str) -> bool:
     return str(status or "").lower() in {"approved", "contacted", "interested", "booked"}
 
+
+def google_api_key() -> str:
+    """Google Places key — accept either env var name (CLAUDE.md uses GOOGLE_PLACES_API_KEY)."""
+    return os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_PLACES_API_KEY") or ""
+
+
+def compute_lead_score(reviews=0, website="", phone="", email="") -> int:
+    """
+    Outbound-fit score (0-100). Reachability weighted highest, then established
+    business signal from review volume. A genuinely "hot" lead (>=75) needs a
+    verified contact method plus either strong reach or an established presence.
+    """
+    score = 0
+    if email:   score += 35
+    if phone:   score += 25
+    if website: score += 15
+    try:
+        r = int(reviews or 0)
+    except (TypeError, ValueError):
+        r = 0
+    if r >= 100:  score += 25
+    elif r >= 50: score += 20
+    elif r >= 20: score += 15
+    elif r >= 5:  score += 8
+    return min(score, 100)
+
+
+def recompute_all_scores() -> dict:
+    """Re-score every lead from its stored fields using the current model. Idempotent."""
+    conn = get_db()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, reviews, website, phone, email FROM leads"
+    ).fetchall()]
+    updated = 0
+    for row in rows:
+        new_score = compute_lead_score(
+            reviews=row.get("reviews", 0),
+            website=row.get("website", "") or "",
+            phone=row.get("phone", "") or "",
+            email=row.get("email", "") or "",
+        )
+        conn.execute("UPDATE leads SET score = ? WHERE id = ?", (new_score, row["id"]))
+        updated += 1
+    conn.commit()
+    conn.close()
+    return {"updated": updated}
+
+
 def init_db():
     os.makedirs("data", exist_ok=True)
     conn = get_db()
@@ -467,9 +515,9 @@ def scrape_leads_sync(req: LeadScrapeRequest):
     import re
     from bs4 import BeautifulSoup
 
-    GKEY = os.getenv("GOOGLE_API_KEY", "")
+    GKEY = google_api_key()
     if not GKEY:
-        raise HTTPException(status_code=400, detail="GOOGLE_API_KEY not configured")
+        raise HTTPException(status_code=400, detail="Google Places API key not configured (set GOOGLE_API_KEY or GOOGLE_PLACES_API_KEY)")
 
     location_str = ", ".join([p for p in [req.city, req.state, req.country] if p])
     search_query = f"{req.query} in {location_str}" if location_str else req.query
@@ -538,15 +586,7 @@ def scrape_leads_sync(req: LeadScrapeRequest):
             except Exception:
                 pass
 
-        score = 0
-        if reviews < 20:    score += 40
-        elif reviews < 50:  score += 30
-        elif reviews < 100: score += 20
-        else:               score += 5
-        if website: score += 15
-        if phone:   score += 20
-        if email:   score += 25
-        score = min(score, 100)
+        score = compute_lead_score(reviews=reviews, website=website, phone=phone, email=email)
 
         leads.append({
             "name": name,
@@ -811,7 +851,7 @@ def health():
         print(f"health: DB check failed: {e}")
 
     claude_ok = bool(os.getenv("ANTHROPIC_API_KEY"))
-    google_ok = bool(os.getenv("GOOGLE_API_KEY"))
+    google_ok = bool(google_api_key())
 
     scheduler_ok = False
     next_run = ""
@@ -850,6 +890,18 @@ async def bulk_approve():
     return {"approved": count, "message": f"{count} leads approved"}
 
 
+@app.post("/api/recompute-scores")
+async def recompute_scores():
+    """Re-score all existing leads with the current scoring model (fixes legacy inflated scores)."""
+    result = recompute_all_scores()
+    conn = get_db()
+    hot = conn.execute(
+        "SELECT COUNT(*) FROM leads WHERE score >= 75 AND (COALESCE(email,'') != '' OR COALESCE(phone,'') != '')"
+    ).fetchone()[0]
+    conn.close()
+    return {"success": True, "updated": result["updated"], "hot_leads": hot}
+
+
 @app.get("/api/stats")
 async def get_stats():
     conn = get_db()
@@ -859,7 +911,7 @@ async def get_stats():
         "SELECT status, COUNT(*) FROM leads GROUP BY status"
     ).fetchall())
     hot_leads = conn.execute(
-        "SELECT COUNT(*) FROM leads WHERE score >= 60"
+        "SELECT COUNT(*) FROM leads WHERE score >= 75 AND (COALESCE(email,'') != '' OR COALESCE(phone,'') != '')"
     ).fetchone()[0]
     contacted = by_status.get('contacted', 0)
     converted = by_status.get('converted', 0)
@@ -942,7 +994,7 @@ async def hot_leads(limit: int = 10):
             """
             SELECT id, name, business_type, phone, email, score, status, created_at, updated_at
             FROM leads
-            WHERE score >= 60
+            WHERE score >= 75 AND (COALESCE(email,'') != '' OR COALESCE(phone,'') != '')
             ORDER BY score DESC, updated_at DESC
             LIMIT ?
             """,
@@ -1260,10 +1312,7 @@ def followup_scheduler():
 @app.get("/api/autocomplete-location")
 async def autocomplete_location(query: str, country: str = "India", type: str = "suburb"):
     """Google Places autocomplete for location fields"""
-    import os
-    from dotenv import load_dotenv
-    load_dotenv()
-    GKEY = os.getenv("GOOGLE_API_KEY", "")
+    GKEY = google_api_key()
     if not GKEY:
         return {"suggestions": []}
     try:
@@ -1314,9 +1363,7 @@ async def scrape_leads_endpoint(req: ScrapeRequest, background_tasks: Background
             else:
                 # Fallback inline scraper using Google Places API
                 import requests as req_lib
-                from dotenv import load_dotenv
-                load_dotenv()
-                GKEY = os.getenv("GOOGLE_API_KEY", "")
+                GKEY = google_api_key()
                 leads = []
                 seen = set()
 
@@ -1377,15 +1424,12 @@ async def scrape_leads_endpoint(req: ScrapeRequest, background_tasks: Background
                             except: pass
 
                         reviews = det.get("user_ratings_total", 0)
-                        score = 0
-                        if reviews < 20: score += 40
-                        elif reviews < 50: score += 30
-                        elif reviews < 100: score += 20
-                        else: score += 5
-                        if website: score += 15
-                        if det.get("formatted_phone_number"): score += 20
-                        if email: score += 25
-                        score = min(score, 100)
+                        score = compute_lead_score(
+                            reviews=reviews,
+                            website=website,
+                            phone=det.get("formatted_phone_number", ""),
+                            email=email,
+                        )
 
                         leads.append({
                             "name": name,
@@ -1745,6 +1789,23 @@ async def startup():
         print("✅ Migration: email_source column added")
     except Exception:
         pass  # Column already exists
+    # One-time migration: re-score legacy leads with the current scoring model
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'score_model_version'").fetchone()
+        version = row[0] if row else None
+        conn.close()
+        if version != "2":
+            result = recompute_all_scores()
+            conn = get_db()
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('score_model_version', '2')"
+            )
+            conn.commit()
+            conn.close()
+            print(f"✅ Migration: re-scored {result['updated']} leads (scoring model v2)")
+    except Exception as e:
+        print(f"Score migration error: {e}")
     t = threading.Thread(target=followup_scheduler, daemon=True)
     t.start()
     from email_engine import start_auto_engine

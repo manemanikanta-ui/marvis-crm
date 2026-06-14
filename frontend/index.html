@@ -779,7 +779,7 @@ body {
         <div class="stat-card green dash-stat-card" onclick="dashCardNav('hot')" title="View hot leads (score ≥ 75)">
           <div class="stat-label">Hot Leads</div>
           <div class="stat-value" id="stat-hot">—</div>
-          <div class="stat-sub">Score ≥ 60</div>
+          <div class="stat-sub">Score ≥ 75</div>
         </div>
         <div class="stat-card yellow dash-stat-card" onclick="dashCardNav('contacted')" title="View contacted leads">
           <div class="stat-label">Contacted</div>
@@ -2206,21 +2206,12 @@ function loadAnalytics() {
 
 async function loadAnalyticsSummary() {
   try {
-    const [c, s] = await Promise.all([
-      fetch(`${API}/campaign-stats`).then(r => r.json()),
-      fetch(`${API}/stats`).then(r => r.json()),
-    ]);
-    const emails = c.emails_sent || 0, wa = c.whatsapp_sent || 0, replies = c.replies || 0;
-    const sent = emails + wa;
-    const interested = c.interested || 0;
-    const totalLeads = s.total_leads || 0;
-    const replyRate = sent ? Math.round((replies / sent) * 100) : 0;
-    const interestRate = totalLeads ? Math.round((interested / totalLeads) * 100) : 0;
-    const convRate = (s.conversion_rate != null) ? s.conversion_rate : 0;
+    // Cumulative (all-time) totals — rates are over all outreach ever sent.
+    const d = await fetch(`${API}/analytics/summary`).then(r => r.json());
     document.getElementById('analytics-summary-cards').innerHTML =
-      aCard('Total Emails', emails) + aCard('Total WhatsApp', wa)
-      + aCard('Reply Rate', replyRate + '%') + aCard('Interest Rate', interestRate + '%')
-      + aCard('Conversion Rate', convRate + '%');
+      aCard('Total Emails', d.total_emails || 0) + aCard('Total WhatsApp', d.total_whatsapp || 0)
+      + aCard('Reply Rate', (d.reply_rate || 0) + '%') + aCard('Interest Rate', (d.interest_rate || 0) + '%')
+      + aCard('Conversion Rate', (d.conversion_rate || 0) + '%');
   } catch (e) { /* leave placeholders */ }
 }
 

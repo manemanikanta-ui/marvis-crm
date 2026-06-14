@@ -1212,6 +1212,50 @@ async def analytics_replies(limit: int = 100):
     conn.close()
     return [dict(r) for r in rows]
 
+
+@app.get("/api/analytics/summary")
+async def analytics_summary():
+    """All-time campaign totals + cumulative rates (denominator = all outreach sent)."""
+    conn = get_db()
+    # 'sent'-like statuses observed in this DB: sent / delivered / opened.
+    total_emails = conn.execute("""
+        SELECT COUNT(*) FROM activities
+        WHERE channel = 'email' AND status IN ('sent', 'delivered', 'opened')
+    """).fetchone()[0]
+    total_whatsapp = conn.execute("""
+        SELECT COUNT(*) FROM activities
+        WHERE channel = 'whatsapp' AND status IN ('sent', 'delivered', 'opened')
+    """).fetchone()[0]
+    total_replies = conn.execute("""
+        SELECT COUNT(*) FROM activities
+        WHERE direction = 'inbound'
+           OR type IN ('reply', 'inbound', 'wa_reply', 'email_reply')
+    """).fetchone()[0]
+    total_interested = conn.execute(
+        "SELECT COUNT(*) FROM leads WHERE status = 'interested'"
+    ).fetchone()[0]
+    total_converted = conn.execute(
+        "SELECT COUNT(*) FROM leads WHERE status = 'converted'"
+    ).fetchone()[0]
+    conn.close()
+
+    total_outreach = total_emails + total_whatsapp
+
+    def rate(n: int) -> float:
+        return round((n / total_outreach) * 100, 1) if total_outreach else 0.0
+
+    return {
+        "total_emails": total_emails,
+        "total_whatsapp": total_whatsapp,
+        "total_outreach": total_outreach,
+        "total_replies": total_replies,
+        "total_interested": total_interested,
+        "total_converted": total_converted,
+        "reply_rate": rate(total_replies),
+        "interest_rate": rate(total_interested),
+        "conversion_rate": rate(total_converted),
+    }
+
 # ─────────────────────────────────────────────
 # SETTINGS
 # ─────────────────────────────────────────────

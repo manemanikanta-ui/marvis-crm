@@ -186,6 +186,14 @@ body {
   border-color: #6366f1;
   transform: translateY(-1px);
 }
+.dash-stat-card {
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.dash-stat-card:hover {
+  border-color: #6366f1;
+  transform: translateY(-1px);
+}
 
 .stat-card::before {
   content: '';
@@ -733,6 +741,9 @@ body {
     <div class="nav-item" onclick="showView('findleads')">
       <span class="nav-icon">🎯</span> Find Leads
     </div>
+    <div class="nav-item" onclick="showView('analytics')">
+      <span class="nav-icon">📊</span> Analytics
+    </div>
     <div class="nav-item" onclick="showView('settings')">
       <span class="nav-icon">⚙️</span> Settings
     </div>
@@ -760,32 +771,32 @@ body {
     <!-- DASHBOARD VIEW -->
     <div id="view-dashboard">
       <div class="stats-grid">
-        <div class="stat-card blue">
+        <div class="stat-card blue dash-stat-card" onclick="dashCardNav('total')" title="View all leads">
           <div class="stat-label">Total Leads</div>
           <div class="stat-value" id="stat-total">—</div>
           <div class="stat-sub">All time</div>
         </div>
-        <div class="stat-card green">
+        <div class="stat-card green dash-stat-card" onclick="dashCardNav('hot')" title="View hot leads (score ≥ 75)">
           <div class="stat-label">Hot Leads</div>
           <div class="stat-value" id="stat-hot">—</div>
           <div class="stat-sub">Score ≥ 60</div>
         </div>
-        <div class="stat-card yellow">
+        <div class="stat-card yellow dash-stat-card" onclick="dashCardNav('contacted')" title="View contacted leads">
           <div class="stat-label">Contacted</div>
           <div class="stat-value" id="stat-contacted">—</div>
           <div class="stat-sub">Outreach sent</div>
         </div>
-        <div class="stat-card orange">
+        <div class="stat-card orange dash-stat-card" onclick="dashCardNav('conversion')" title="View converted leads">
           <div class="stat-label">Converted</div>
           <div class="stat-value" id="stat-converted">—</div>
           <div class="stat-sub" id="stat-rate">0% rate</div>
         </div>
-        <div class="stat-card red">
+        <div class="stat-card red dash-stat-card" onclick="showView('followups')" title="Go to Follow-ups">
           <div class="stat-label">Follow-ups</div>
           <div class="stat-value" id="stat-followups">—</div>
           <div class="stat-sub">Pending</div>
         </div>
-        <div class="stat-card yellow">
+        <div class="stat-card yellow dash-stat-card" onclick="dashCardNav('approvals')" title="View leads pending review">
           <div class="stat-label">Approvals</div>
           <div class="stat-value" id="stat-approvals">—</div>
           <div class="stat-sub">Waiting review</div>
@@ -798,12 +809,12 @@ body {
           <div style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;" id="analytics-updated">Live</div>
         </div>
         <div class="analytics-grid" id="campaign-analytics-cards">
-          <div class="analytics-card"><div class="analytics-label">Emails Sent</div><div class="analytics-value">—</div></div>
-          <div class="analytics-card"><div class="analytics-label">WhatsApp Sent</div><div class="analytics-value">—</div></div>
-          <div class="analytics-card"><div class="analytics-label">Replies</div><div class="analytics-value">—</div></div>
-          <div class="analytics-card"><div class="analytics-label">Interested</div><div class="analytics-value">—</div></div>
-          <div class="analytics-card"><div class="analytics-label">Booked</div><div class="analytics-value">—</div></div>
-          <div class="analytics-card"><div class="analytics-label">Failure Rate</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav('analytics-emails')"><div class="analytics-label">Emails Sent</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav('analytics-whatsapp')"><div class="analytics-label">WhatsApp Sent</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav('analytics-replies')"><div class="analytics-label">Replies</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav('analytics-interested')"><div class="analytics-label">Interested</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav('analytics-booked')"><div class="analytics-label">Booked</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav('analytics-emails')"><div class="analytics-label">Failure Rate</div><div class="analytics-value">—</div></div>
         </div>
       </div>
 
@@ -1094,6 +1105,76 @@ body {
         </div>
 
       </div>
+    </div>
+
+    <!-- ANALYTICS VIEW -->
+    <div id="view-analytics" style="display:none">
+
+      <!-- Panel 6 — Campaign Summary (top) -->
+      <div class="panel" id="analytics-summary" style="margin-bottom:16px;">
+        <div class="panel-header">
+          <div class="panel-title">📈 Campaign Summary</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadAnalytics()">Refresh</button>
+        </div>
+        <div class="analytics-grid" id="analytics-summary-cards" style="padding:16px 20px;">
+          <div class="analytics-card"><div class="analytics-label">Total Emails</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card"><div class="analytics-label">Total WhatsApp</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card"><div class="analytics-label">Reply Rate</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card"><div class="analytics-label">Interest Rate</div><div class="analytics-value">—</div></div>
+          <div class="analytics-card"><div class="analytics-label">Conversion Rate</div><div class="analytics-value">—</div></div>
+        </div>
+      </div>
+
+      <!-- Panel 1 — Emails Sent -->
+      <div class="panel" id="analytics-emails" style="margin-bottom:16px;">
+        <div class="panel-header">
+          <div class="panel-title">📧 Emails Sent <span id="analytics-emails-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+        </div>
+        <div id="analytics-emails-body" style="padding:0 20px 20px;">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+
+      <!-- Panel 2 — WhatsApp Sent -->
+      <div class="panel" id="analytics-whatsapp" style="margin-bottom:16px;">
+        <div class="panel-header">
+          <div class="panel-title">📱 WhatsApp Messages <span id="analytics-whatsapp-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+        </div>
+        <div id="analytics-whatsapp-body" style="padding:0 20px 20px;">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+
+      <!-- Panel 3 — Replies -->
+      <div class="panel" id="analytics-replies" style="margin-bottom:16px;">
+        <div class="panel-header">
+          <div class="panel-title">💬 Replies Received <span id="analytics-replies-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+        </div>
+        <div id="analytics-replies-body" style="padding:0 20px 20px;">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+
+      <!-- Panel 4 — Interested -->
+      <div class="panel" id="analytics-interested" style="margin-bottom:16px;">
+        <div class="panel-header">
+          <div class="panel-title">⭐ Interested <span id="analytics-interested-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+        </div>
+        <div id="analytics-interested-body" style="padding:16px 20px;">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+
+      <!-- Panel 5 — Booked / Demo Scheduled -->
+      <div class="panel" id="analytics-booked" style="margin-bottom:16px;">
+        <div class="panel-header">
+          <div class="panel-title">📅 Booked <span id="analytics-booked-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+        </div>
+        <div id="analytics-booked-body" style="padding:16px 20px;">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+
     </div>
 
     <!-- SETTINGS VIEW -->
@@ -1535,8 +1616,8 @@ let selectedLeadIds = new Set();
 // ─────────────────────────────────────────────
 // NAVIGATION
 // ─────────────────────────────────────────────
-const views = ['dashboard', 'leads', 'pipeline', 'followups', 'findleads', 'settings'];
-const titles = { dashboard: 'Dashboard', leads: 'All Leads', pipeline: 'Pipeline', followups: 'Follow-ups', findleads: 'Find Leads', settings: 'Settings' };
+const views = ['dashboard', 'leads', 'pipeline', 'followups', 'findleads', 'analytics', 'settings'];
+const titles = { dashboard: 'Dashboard', leads: 'All Leads', pipeline: 'Pipeline', followups: 'Follow-ups', findleads: 'Find Leads', analytics: 'Analytics', settings: 'Settings' };
 
 function showView(view) {
   views.forEach(v => {
@@ -1552,6 +1633,7 @@ function showView(view) {
   if (view === 'followups') loadFollowups();
   if (view === 'settings') loadSettings();
   if (view === 'findleads') initFindLeads();
+  if (view === 'analytics') loadAnalytics();
 }
 
 function routeFromHash() {
@@ -1633,12 +1715,12 @@ async function loadDashboard() {
     const analyticsCards = document.getElementById('campaign-analytics-cards');
     if (analyticsCards) {
       analyticsCards.innerHTML =
-        '<div class="analytics-card"><div class="analytics-label">Emails Sent</div><div class="analytics-value">' + (analytics.emails_sent || 0) + '</div></div>' +
-        '<div class="analytics-card"><div class="analytics-label">WhatsApp Sent</div><div class="analytics-value">' + (analytics.whatsapp_sent || 0) + '</div></div>' +
-        '<div class="analytics-card"><div class="analytics-label">Replies</div><div class="analytics-value">' + (analytics.replies || 0) + '</div></div>' +
-        '<div class="analytics-card"><div class="analytics-label">Interested</div><div class="analytics-value">' + (analytics.interested || 0) + '</div></div>' +
-        '<div class="analytics-card"><div class="analytics-label">Booked</div><div class="analytics-value">' + (analytics.booked || 0) + '</div></div>' +
-        '<div class="analytics-card"><div class="analytics-label">Failure Rate</div><div class="analytics-value">' + (analytics.failure_rate || 0) + '%</div></div>';
+        '<div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav(\'analytics-emails\')"><div class="analytics-label">Emails Sent</div><div class="analytics-value">' + (analytics.emails_sent || 0) + '</div></div>' +
+        '<div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav(\'analytics-whatsapp\')"><div class="analytics-label">WhatsApp Sent</div><div class="analytics-value">' + (analytics.whatsapp_sent || 0) + '</div></div>' +
+        '<div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav(\'analytics-replies\')"><div class="analytics-label">Replies</div><div class="analytics-value">' + (analytics.replies || 0) + '</div></div>' +
+        '<div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav(\'analytics-interested\')"><div class="analytics-label">Interested</div><div class="analytics-value">' + (analytics.interested || 0) + '</div></div>' +
+        '<div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav(\'analytics-booked\')"><div class="analytics-label">Booked</div><div class="analytics-value">' + (analytics.booked || 0) + '</div></div>' +
+        '<div class="analytics-card" style="cursor:pointer;" onclick="campaignCardNav(\'analytics-emails\')"><div class="analytics-label">Failure Rate</div><div class="analytics-value">' + (analytics.failure_rate || 0) + '%</div></div>';
     }
 
     loadPendingApprovals();
@@ -2028,7 +2110,8 @@ async function bulkDeleteSelected() {
 
 function filterLeads(status, el) {
   currentFilter = status;
-  extraLeadParams = {};  // a manual chip click clears any stat-card special filter
+  extraLeadParams = {};  // a manual chip click clears any stat-card special filter (e.g. Hot's min_score)
+  if (status === 'new') currentSort = 'created_desc';  // New = newest collected first, not by score
   document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   loadLeads();
@@ -2058,12 +2141,133 @@ function statCardNav(which) {
       currentFilter = 'pending_review'; syncFilterChips('pending_review'); break;
     case 'emails':                         // Emails Sent Today → contacted today
       currentFilter = 'contacted'; extraLeadParams = { contacted_today: true }; syncFilterChips('contacted'); break;
+    case 'contacted':                      // All contacted (no date filter) — dashboard card
+      currentFilter = 'contacted'; syncFilterChips('contacted'); break;
     case 'conversion':                     // Conversion Rate → status=converted
       currentFilter = 'converted'; syncFilterChips('converted'); break;
   }
   loadLeads();
   const table = document.querySelector('#view-leads .panel');
   if (table) table.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Dashboard stat cards: switch to the All Leads view, then apply the filter.
+function dashCardNav(which) {
+  showView('leads');
+  setTimeout(() => statCardNav(which), 100);
+}
+
+// ─────────────────────────────────────────────
+// ANALYTICS PAGE
+// ─────────────────────────────────────────────
+function aEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+function aEmpty(t) { return '<div class="empty-state"><div class="empty-title">' + aEsc(t) + '</div></div>'; }
+function aCard(label, val) {
+  return '<div class="analytics-card"><div class="analytics-label">' + aEsc(label)
+    + '</div><div class="analytics-value">' + val + '</div></div>';
+}
+function aTable(headers, rows) {
+  return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+    + '<thead><tr>' + headers.map(h => '<th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text3);font-weight:600;white-space:nowrap;">' + aEsc(h) + '</th>').join('') + '</tr></thead>'
+    + '<tbody>' + rows.map(cells => '<tr>' + cells.map(c => '<td style="padding:8px;border-bottom:1px solid var(--border);vertical-align:top;">' + c + '</td>').join('') + '</tr>').join('') + '</tbody>'
+    + '</table></div>';
+}
+function aStatusBadge(s) {
+  const v = (s || '').toLowerCase();
+  const color = v.indexOf('fail') >= 0 ? '#fc8181'
+    : (v === 'sent' || v === 'delivered' || v === 'opened') ? '#48bb78' : '#a0aec0';
+  return '<span style="color:' + color + ';">' + aEsc(s || '—') + '</span>';
+}
+function aClassBadge(c) {
+  const v = (c || '').toLowerCase();
+  if (!v) return '<span style="color:#a0aec0;">—</span>';
+  const color = { interested: '#48bb78', pricing: '#4a9eff', callback: '#ecc94b', not_interested: '#fc8181' }[v] || '#a0aec0';
+  return '<span style="background:' + color + '22;border:1px solid ' + color + ';color:' + color
+    + ';padding:2px 8px;border-radius:10px;font-size:11px;">' + aEsc(v) + '</span>';
+}
+
+function loadAnalytics() {
+  loadAnalyticsSummary();
+  loadAnalyticsTable('emails',   ['Lead', 'Email', 'Subject', 'Date', 'Status'],
+    r => [aEsc(r.lead_name || '—'), aEsc(r.lead_email || '—'), aEsc(r.content || '—'),
+          formatDate(r.sent_at || r.created_at), aStatusBadge(r.status)]);
+  loadAnalyticsTable('whatsapp', ['Lead', 'Phone', 'Message', 'Date', 'Status'],
+    r => [aEsc(r.lead_name || '—'), aEsc(r.lead_phone || '—'), aEsc((r.content || '—').slice(0, 80)),
+          formatDate(r.sent_at || r.created_at), aStatusBadge(r.status)]);
+  loadAnalyticsTable('replies',  ['Lead', 'Reply', 'Channel', 'Date', 'Classification'],
+    r => [aEsc(r.lead_name || '—'), aEsc((r.content || '—').slice(0, 80)), aEsc(r.channel || '—'),
+          formatDate(r.created_at), aClassBadge(r.classification)]);
+  loadAnalyticsLeadCards('interested', 'interested');
+  loadAnalyticsLeadCards('booked', 'booked');
+}
+
+async function loadAnalyticsSummary() {
+  try {
+    const [c, s] = await Promise.all([
+      fetch(`${API}/campaign-stats`).then(r => r.json()),
+      fetch(`${API}/stats`).then(r => r.json()),
+    ]);
+    const emails = c.emails_sent || 0, wa = c.whatsapp_sent || 0, replies = c.replies || 0;
+    const sent = emails + wa;
+    const interested = c.interested || 0;
+    const totalLeads = s.total_leads || 0;
+    const replyRate = sent ? Math.round((replies / sent) * 100) : 0;
+    const interestRate = totalLeads ? Math.round((interested / totalLeads) * 100) : 0;
+    const convRate = (s.conversion_rate != null) ? s.conversion_rate : 0;
+    document.getElementById('analytics-summary-cards').innerHTML =
+      aCard('Total Emails', emails) + aCard('Total WhatsApp', wa)
+      + aCard('Reply Rate', replyRate + '%') + aCard('Interest Rate', interestRate + '%')
+      + aCard('Conversion Rate', convRate + '%');
+  } catch (e) { /* leave placeholders */ }
+}
+
+async function loadAnalyticsTable(key, headers, mapRow) {
+  const body = document.getElementById(`analytics-${key}-body`);
+  const count = document.getElementById(`analytics-${key}-count`);
+  try {
+    const rows = await fetch(`${API}/analytics/${key}?limit=100`).then(r => r.json());
+    const list = Array.isArray(rows) ? rows : [];
+    if (count) count.textContent = '(' + list.length + ')';
+    body.innerHTML = list.length ? aTable(headers, list.map(mapRow)) : aEmpty('Nothing here yet');
+  } catch (e) {
+    body.innerHTML = aEmpty('Failed to load');
+  }
+}
+
+async function loadAnalyticsLeadCards(status, key) {
+  const body = document.getElementById(`analytics-${key}-body`);
+  const count = document.getElementById(`analytics-${key}-count`);
+  try {
+    const res = await fetch(`${API}/leads?status=${status}&limit=100`).then(r => r.json());
+    const leads = res.leads || [];
+    if (count) count.textContent = '(' + leads.length + ')';
+    if (!leads.length) { body.innerHTML = aEmpty('None yet'); return; }
+    body.innerHTML = '<div class="analytics-grid">' + leads.map(l =>
+      '<div class="analytics-card" style="text-align:left;">'
+      + '<div style="font-weight:600;">' + aEsc(l.name || '—') + '</div>'
+      + '<div style="font-size:12px;color:var(--text3);">' + aEsc(l.business_type || '—') + '</div>'
+      + '<div style="font-size:11px;color:var(--text3);margin-top:6px;">'
+      + (l.notes ? aEsc(String(l.notes).slice(0, 90)) : 'No notes yet') + '</div>'
+      + '<div style="font-size:11px;color:var(--text3);margin-top:4px;">Last activity: '
+      + formatDate(l.updated_at || l.created_at) + '</div>'
+      + '<button class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="openLead(' + l.id + ')">Open Lead</button>'
+      + '</div>'
+    ).join('') + '</div>';
+  } catch (e) {
+    body.innerHTML = aEmpty('Failed to load');
+  }
+}
+
+// Dashboard Campaign Analytics cards → jump to the matching Analytics panel.
+function campaignCardNav(panelId) {
+  showView('analytics');
+  setTimeout(() => {
+    const el = document.getElementById(panelId);
+    if (el) el.scrollIntoView({ behavior: 'smooth' });
+  }, 150);
 }
 
 let searchTimer;

@@ -3441,26 +3441,38 @@ function displayFoundLeads(leads) {
 function showLeadsOnMap(leads, city, state, country) {
   const mapPlaceholder = document.getElementById('map-placeholder');
   const mapIframe = document.getElementById('map-iframe');
-
-  // Prefer a real lead address; fall back to the searched location string.
-  const firstWithAddr = (leads || []).find(l => l.address);
-  const locationStr = [city, state, country].filter(Boolean).join(', ');
-  const address = (firstWithAddr && firstWithAddr.address) || locationStr;
+  if (!mapIframe) return;
 
   mapPlaceholder.style.display = 'none';
   mapIframe.style.display = 'block';
   mapIframe.style.border = 'none';
 
-  if (address) {
-    // Google Maps embed (CSP allows frame-src https://maps.google.com)
-    mapIframe.src = `https://maps.google.com/maps?q=${encodeURIComponent(address)}&output=embed`;
+  const list = leads || [];
+  const withAddress = list.filter(l => l.address && l.address.trim());
+  // Searched location, used to keep the map centred on the right city
+  // (e.g. Singapore searches stay on Singapore, not a hardcoded Hyderabad).
+  const place = [city, state, country].filter(Boolean).join(', ');
+
+  if (!withAddress.length) {
+    // No addresses — centre on the searched city.
+    const cityQuery = encodeURIComponent(place || city || country || '');
+    mapIframe.src = `https://maps.google.com/maps?q=${cityQuery}&output=embed&z=12`;
+  } else if (withAddress.length === 1) {
+    // Single lead — centre on its exact address.
+    const q = encodeURIComponent(withAddress[0].address);
+    mapIframe.src = `https://maps.google.com/maps?q=${q}&output=embed&z=15`;
   } else {
-    // OSM fallback when no address is available
-    mapIframe.src = 'https://www.openstreetmap.org/export/embed.html?bbox=78.2,17.2,78.7,17.6&layer=mapnik';
+    // Multiple leads — a category search renders clustered pins for that
+    // business type across the searched city. Google geolocates the query
+    // itself, so no hardcoded lat/lng is needed and no Maps JS API key.
+    const categories = [...new Set(list.map(l => l.category || l.business_type || '').filter(Boolean))];
+    const categoryStr = categories[0] || 'businesses';
+    const searchTerm = `${categoryStr} in ${place || city || country || ''}`.trim();
+    mapIframe.src = `https://maps.google.com/maps?q=${encodeURIComponent(searchTerm)}&output=embed&z=13`;
   }
 
   document.getElementById('map-count').textContent =
-    `${(leads || []).length} leads${city ? ' · ' + city : ''}`;
+    `${list.length} leads${city ? ' · ' + city : ''}`;
 }
 
 function clearAll() {

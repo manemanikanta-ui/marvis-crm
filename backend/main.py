@@ -1154,6 +1154,64 @@ async def pause_lead(lead_id: int):
 async def campaign_stats():
     return get_campaign_stats()
 
+
+# ─────────────────────────────────────────────
+# ANALYTICS — activity logs
+# Discriminator in this DB is `channel` ('email'/'whatsapp') + `status`,
+# with replies as direction='inbound'. type fallbacks cover older rows.
+# ─────────────────────────────────────────────
+
+@app.get("/api/analytics/emails")
+async def analytics_emails(limit: int = 100):
+    """Return email activity log."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT a.*, l.name AS lead_name, l.email AS lead_email
+        FROM activities a
+        LEFT JOIN leads l ON a.lead_id = l.id
+        WHERE a.channel = 'email'
+           OR a.type IN ('email', 'email_sent', 'sequence_email', 'followup_scheduled')
+        ORDER BY a.created_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/analytics/whatsapp")
+async def analytics_whatsapp(limit: int = 100):
+    """Return WhatsApp activity log."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT a.*, l.name AS lead_name, l.phone AS lead_phone
+        FROM activities a
+        LEFT JOIN leads l ON a.lead_id = l.id
+        WHERE a.channel = 'whatsapp'
+           OR a.type IN ('whatsapp', 'whatsapp_sent', 'wa_sent')
+        ORDER BY a.created_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/analytics/replies")
+async def analytics_replies(limit: int = 100):
+    """Return inbound replies."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT a.*, l.name AS lead_name, l.phone AS lead_phone,
+               l.email AS lead_email
+        FROM activities a
+        LEFT JOIN leads l ON a.lead_id = l.id
+        WHERE a.direction = 'inbound'
+           OR a.type IN ('reply', 'inbound', 'wa_reply', 'email_reply')
+        ORDER BY a.created_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
 # ─────────────────────────────────────────────
 # SETTINGS
 # ─────────────────────────────────────────────

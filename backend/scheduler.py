@@ -918,6 +918,22 @@ def start_scheduler_service():
         _scheduler_stop.clear()
         _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True, name="marvis-scheduler")
         _scheduler_thread.start()
+
+        # Log when the scheduler will next fire so it's visible at startup.
+        try:
+            settings = _settings_dict()
+            run_time = settings.get("scheduler_run_time", "09:00")
+            jobs = _parse_jobs(settings.get("scheduler_jobs", ""))
+            active = [
+                f"{job.get('category', '?')} ({job.get('location', '?')})"
+                for job in jobs
+                if _parse_bool(job.get("enabled", True), True)
+            ]
+            _logger.info("Scheduler initialised — next run at %s IST", run_time)
+            _logger.info("Active jobs: %s", active or _parse_queries(settings.get("scheduler_queries", "")))
+        except Exception as exc:
+            _logger.warning("Scheduler init logging failed: %s", exc)
+
         return {"running": True}
 
 

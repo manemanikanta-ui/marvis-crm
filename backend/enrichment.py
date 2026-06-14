@@ -3,7 +3,7 @@ MARVIS AI Enrichment Engine
 Generates a personalised 3-email cold outreach sequence (Day 0 / Day 3 / Day 7)
 plus a WhatsApp message for any lead using Claude.
 
-All Claude output is validated (validate_enrichment) before it is saved —
+All Claude output is validated (validate_enrichment_output) before it is saved —
 hallucinated or red-flag content is rejected and never written to the DB.
 
 Runs:
@@ -26,41 +26,122 @@ load_dotenv()
 
 DB_PATH = "data/crm.db"
 
-CLAUDE_MODEL = "claude-sonnet-4-6"
+# Outreach generation model (per business-model spec).
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 
-# ── Email sequence prompt (hallucination-free) ──
-ENRICHMENT_PROMPT = """You are writing a personalised cold outreach email on behalf of Manikanta Mane, founder of Talktiv AI, Hyderabad.
+def build_outreach_prompt(lead: dict) -> str:
+    """Business-aware outreach prompt: detects what each lead is missing and
+    tailors WhatsApp + email to it. Produces JSON {whatsapp, email_subject, email_body}."""
+    name = lead.get('name', 'your business')
+    # DB stores category under `business_type`; fall back to `category` for compatibility.
+    category = (lead.get('category') or lead.get('business_type') or '').lower()
+    city = lead.get('city') or lead.get('location') or 'Hyderabad'
+    reviews = lead.get('reviews', 0) or 0
+    website = (lead.get('website') or '').strip()
+
+    # Detect what they're missing
+    is_social_only = any(s in website for s in
+        ['instagram.com', 'facebook.com', 'twitter.com'])
+    has_no_website = not website
+    needs_website = has_no_website or is_social_only
+    high_volume = int(reviews) > 200 if reviews else False
+
+    # Category pain points
+    pain_map = {
+        'cafe': 'missed reservation calls and after-hours enquiries',
+        'coffee': 'missed reservation calls and after-hours enquiries',
+        'restaurant': 'missed table bookings and delivery enquiries',
+        'dental': 'missed appointment calls and after-hours patient queries',
+        'clinic': 'missed patient calls and appointment bookings outside working hours',
+        'salon': 'missed booking calls and WhatsApp appointment requests',
+        'beauty': 'missed booking calls and WhatsApp appointment requests',
+        'gym': 'missed membership enquiries and class booking requests',
+        'fitness': 'missed membership enquiries and class booking requests',
+        'real estate': 'missed buyer and seller calls during site visits',
+        'property': 'missed buyer and seller calls during site visits',
+        'hotel': 'missed booking enquiries and check-in queries',
+        'coaching': 'missed student enquiries and admission calls',
+        'school': 'missed parent enquiries and admission calls',
+        'pharmacy': 'missed medicine availability and prescription queries',
+        'interior': 'missed project enquiries and consultation requests',
+        'photographer': 'missed event booking enquiries',
+        'plumber': 'missed emergency service calls after hours',
+        'electrician': 'missed emergency service calls after hours',
+    }
+
+    pain = 'missed customer enquiries outside business hours'
+    for key, value in pain_map.items():
+        if key in category:
+            pain = value
+            break
+
+    # What we specifically offer this business
+    offerings = []
+    if needs_website:
+        offerings.append("a professional website that converts visitors into customers")
+    if high_volume:
+        offerings.append(
+            f"AI WhatsApp automation to handle the volume of enquiries "
+            f"that comes with {reviews}+ Google reviews"
+        )
+    else:
+        offerings.append("WhatsApp AI that replies to customer messages instantly, 24/7")
+
+    offerings.append(f"an AI system to handle {pain} automatically")
+    offering_text = offerings[0] + " and " + offerings[1]
+
+    website_note = ""
+    if has_no_website:
+        website_note = "They have NO website — specifically mention we can build them one."
+    elif is_social_only:
+        website_note = (f"Their only web presence is social media ({website}) — "
+                       f"mention we can build a proper business website.")
+
+    return f"""You are writing personalised cold outreach for Manikanta Mane,
+founder of Talktiv AI, Hyderabad.
 
 Business details:
 Name: {name}
 Category: {category}
-Location: {city}, {state}
-Phone: {phone}
-Reviews: {reviews} Google reviews
-Website: {website}
+City: {city}
+Google Reviews: {reviews}
+Website status: {'No website' if has_no_website else ('Social only: ' + website if is_social_only else 'Has website')}
 
-Write 3 emails for a cold outreach sequence:
+{website_note}
 
-Email 1 (Day 0) — Warm, personal intro. Reference something specific about their business. Ask one relevant question about their biggest challenge. Do NOT mention any product or service. Max 150 words. Subject line included.
+Their main pain point: {pain}
 
-Email 2 (Day 3) — Follow-up. Share one specific insight relevant to their industry in {city}. Soft mention that you help businesses like theirs. One clear CTA. Max 120 words.
+What we can specifically offer them: {offering_text}
 
-Email 3 (Day 7) — Final touch. Brief, respectful, leaves door open. Max 80 words.
+Write three pieces of outreach:
 
-Rules:
-- Write as Manikanta personally, not as a company
-- Reference their specific business name and location naturally
-- Zero mentions of "voice bots", "Talktiv", or any product unless explicitly relevant to their category
-- No generic phrases like "I hope this finds you well" or "I wanted to reach out"
-- If category is restaurant/cafe/food: focus on customer enquiry volume and missed bookings
-- If category is clinic/dental/medical: focus on appointment no-shows and after-hours calls
-- If category is real estate: focus on missed buyer/seller calls and lead follow-up
-- If category is salon/gym/wellness: focus on booking automation and customer retention
-- For all other categories: focus on their most common customer communication pain point
+1. WhatsApp message (max 100 words):
+- Warm and personal, written as Manikanta personally
+- Reference {name} and {city} specifically
+- Mention ONE specific thing we can do for them based on what they're missing
+- End with a single question that invites a reply
+- Natural tone — not salesy, not corporate
+- If they have 500+ reviews, acknowledge their established reputation
 
-Return JSON only:
-{{"day0": {{"subject": "...", "body": "..."}}, "day3": {{"subject": "...", "body": "..."}}, "day7": {{"subject": "...", "body": "..."}}}}"""
+2. Email subject line (max 55 characters)
+
+3. Email body (max 160 words):
+- Same personal tone as WhatsApp
+- Reference their specific pain point: {pain}
+- Mention what we can build for them specifically
+- One clear CTA at the end
+
+STRICT RULES:
+- Never say "Talktiv AI talkbots" or "voice bots" or "AI agents" generically
+- Never use phrases like "I hope this finds you well" or "I wanted to reach out"
+- Never make claims we can't deliver (no "guaranteed results" or "100% success")
+- Always reference the business name and city naturally
+- If website is missing or social-only, always mention website building
+- Write in a way that feels like a local Hyderabad professional, not a global SaaS company
+
+Return ONLY valid JSON, no markdown:
+{{"whatsapp": "...", "email_subject": "...", "email_body": "..."}}"""
 
 
 def get_db():
@@ -80,134 +161,96 @@ def _ensure_sequence_column():
         print(f"  email_sequence column ensure error: {e}")
 
 
-def validate_enrichment(result: dict, lead: dict) -> bool:
-    """Check enrichment output for hallucinations before saving."""
-    body_combined = " ".join([
-        result.get('day0', {}).get('body', ''),
-        result.get('day3', {}).get('body', ''),
-        result.get('day7', {}).get('body', ''),
-    ]).lower()
+def validate_enrichment_output(result: dict, lead: dict) -> tuple[bool, str]:
+    """Validate Claude output before saving. Returns (is_valid, reason)."""
+    wa = result.get('whatsapp', '')
+    subject = result.get('email_subject', '')
+    body = result.get('email_body', '')
+    combined = (wa + subject + body).lower()
+    name = (lead.get('name') or '').lower()
 
-    red_flags = ['guaranteed', 'proven results', 'hundreds of clients',
-                 'award winning', 'number one', '#1']
-    if any(flag in body_combined for flag in red_flags):
-        return False
+    if len(wa) < 20:
+        return False, "WhatsApp message too short"
+    if len(subject) < 5:
+        return False, "Email subject too short"
+    if len(body) < 50:
+        return False, "Email body too short"
 
-    name = (lead.get('name') or '').strip()
-    if not name:
-        return True  # no name to verify against; don't false-reject
-    first = name.lower().split()[0]
-    if first not in body_combined:
-        return False
+    bad_phrases = [
+        'guaranteed results', 'proven roi', 'hundreds of clients',
+        'award winning', 'number one', '#1 in', 'best in india',
+        'i hope this finds you', 'i wanted to reach out',
+        'talkbot', 'voice bot'
+    ]
+    for phrase in bad_phrases:
+        if phrase in combined:
+            return False, f"Hallucination detected: '{phrase}'"
 
-    return True
+    first_word = name.split()[0] if name else ''
+    if first_word and len(first_word) > 3 and first_word not in combined:
+        return False, "Business name not referenced in output"
+
+    return True, "OK"
 
 
-def _generate_whatsapp(client, lead: dict) -> str:
-    """Generate a single WhatsApp outreach message."""
-    name    = lead.get("name", "")
-    btype   = lead.get("business_type", "") or lead.get("category", "")
-    reviews = lead.get("reviews", 0)
-    address = lead.get("address", "")
-    website = lead.get("website", "")
-
-    wa_prompt = f"""Write a short WhatsApp outreach message on behalf of Manikanta, founder of Talktiv AI.
-
-Talktiv AI helps Indian businesses handle customer calls 24/7 using AI voice agents in Telugu, Hindi, Tamil, English and 18 more Indian languages.
-
-Target business:
-- Name: {name}
-- Type: {btype}
-- Reviews: {reviews}
-- Location: {address}
-- Has website: {"Yes" if website else "No"}
-
-Requirements:
-- Warm, conversational, NOT salesy
-- Reference their business type naturally
-- Mention one specific pain point (missed calls, language barriers, or after-hours inquiries)
-- Offer a FREE demo
-- Under 80 words
-- End with a soft question
-- Sign off: Manikanta | Talktiv AI
-- Sound human, not like a template
-
-Return ONLY the message, nothing else."""
+def _generate_outreach(client, lead: dict) -> dict:
+    """
+    Single Claude call producing the business-aware outreach.
+    Returns the raw parsed JSON {whatsapp, email_subject, email_body} — {} on failure.
+    """
+    prompt = build_outreach_prompt(lead)
 
     resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=200,
-        messages=[{"role": "user", "content": wa_prompt}],
-    )
-    return resp.content[0].text.strip()
-
-
-def _generate_email_sequence(client, lead: dict) -> dict:
-    """
-    Generate the 3-email Day0/Day3/Day7 sequence.
-    Returns {"day0": {...}, "day3": {...}, "day7": {...}} — empty dicts on parse failure.
-    """
-    name     = lead.get("name", "")
-    category = lead.get("business_type", "") or lead.get("category", "")
-    city     = lead.get("city") or lead.get("address", "")
-    state    = lead.get("state", "") or ""
-    phone    = lead.get("phone", "")
-    reviews  = lead.get("reviews", 0)
-    website  = lead.get("website", "") or "None"
-
-    prompt = ENRICHMENT_PROMPT.format(
-        name=name, category=category, city=city, state=state,
-        phone=phone, reviews=reviews, website=website,
-    )
-
-    resp = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=900,
+        max_tokens=1000,
         messages=[{"role": "user", "content": prompt}],
     )
+
     raw = resp.content[0].text.strip()
+    # Strip markdown fences if present
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
     raw = raw.replace("```json", "").replace("```", "").strip()
+
     try:
-        data = json.loads(raw)
+        return json.loads(raw)
     except json.JSONDecodeError:
-        return {"day0": {}, "day3": {}, "day7": {}}
-
-    def norm(slot):
-        slot = data.get(slot, {}) or {}
-        return {"subject": str(slot.get("subject", "")).strip(),
-                "body": str(slot.get("body", "")).strip()}
-
-    return {"day0": norm("day0"), "day3": norm("day3"), "day7": norm("day7")}
+        return {}
 
 
 def generate_for_lead(lead: dict) -> dict:
     """
-    Generate WhatsApp message + 3-email sequence for a single lead using Claude.
+    Generate WhatsApp + email outreach for a single lead using Claude.
     Returns dict with keys:
-      whatsapp_message, day0, day3, day7, email_subject, email_body
-    (email_subject/email_body mirror Day 0 for backward compatibility.)
+      whatsapp, whatsapp_message, email_subject, email_body, day0, day3, day7
+    ('whatsapp' mirrors 'whatsapp_message' for validate_enrichment_output;
+     day0 mirrors the email for backward compatibility with the stored sequence.)
     """
     import anthropic
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
 
     result = {
-        "whatsapp_message": "",
-        "day0": {}, "day3": {}, "day7": {},
+        "whatsapp": "", "whatsapp_message": "",
         "email_subject": "", "email_body": "",
+        "day0": {}, "day3": {}, "day7": {},
     }
 
     try:
-        result["whatsapp_message"] = _generate_whatsapp(client, lead)
+        raw = _generate_outreach(client, lead)
     except Exception as e:
-        print(f"  WhatsApp generation error for {lead.get('name','')}: {e}")
+        print(f"  Outreach generation error for {lead.get('name','')}: {e}")
+        return result
 
-    try:
-        seq = _generate_email_sequence(client, lead)
-        result.update(seq)
-        result["email_subject"] = seq["day0"].get("subject", "")
-        result["email_body"]    = seq["day0"].get("body", "")
-    except Exception as e:
-        print(f"  Email generation error for {lead.get('name','')}: {e}")
+    wa      = str(raw.get("whatsapp", "")).strip()
+    subject = str(raw.get("email_subject", "")).strip()
+    body    = str(raw.get("email_body", "")).strip()
+
+    result["whatsapp"]         = wa
+    result["whatsapp_message"] = wa
+    result["email_subject"]    = subject
+    result["email_body"]       = body
+    if subject or body:
+        result["day0"] = {"subject": subject, "body": body}
 
     return result
 
@@ -234,10 +277,11 @@ def enrich_lead_in_db(lead_id: int) -> dict:
     candidate = None
     for attempt in range(2):
         candidate = generate_for_lead(lead)
-        if validate_enrichment(candidate, lead):
+        is_valid, reason = validate_enrichment_output(candidate, lead)
+        if is_valid:
             result = candidate
             break
-        print(f"  ⚠️ Validation failed for {lead['name'][:40]} (attempt {attempt + 1})")
+        print(f"  ⚠️ Validation failed for {lead['name'][:40]} (attempt {attempt + 1}): {reason}")
 
     email_valid = result is not None
     if result is None:

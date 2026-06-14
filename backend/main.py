@@ -396,7 +396,10 @@ async def get_leads(
     search: Optional[str] = None,
     sort: str = "created_desc",
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
+    min_score: Optional[int] = None,
+    created_today: bool = False,
+    contacted_today: bool = False,
 ):
     order_map = {
         "score_desc":   "score DESC",
@@ -426,6 +429,14 @@ async def get_leads(
     if search:
         query += " AND (name LIKE ? OR business_type LIKE ? OR address LIKE ?)"
         params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+    if min_score is not None:
+        query += " AND score >= ?"
+        params.append(min_score)
+    if created_today:
+        query += " AND DATE(created_at) = DATE('now')"
+    if contacted_today:
+        # No last_contacted column on leads — derive from activities sent today.
+        query += " AND id IN (SELECT lead_id FROM activities WHERE DATE(sent_at) = DATE('now'))"
 
     query += f" ORDER BY {order_clause} LIMIT ? OFFSET ?"
     params.extend([limit, offset])

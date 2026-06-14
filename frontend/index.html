@@ -178,6 +178,14 @@ body {
   border-radius: 12px; padding: 18px;
   position: relative; overflow: hidden;
 }
+.stat-card.clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.stat-card.clickable:hover {
+  border-color: #6366f1;
+  transform: translateY(-1px);
+}
 
 .stat-card::before {
   content: '';
@@ -273,7 +281,7 @@ body {
 
 .table-header {
   display: grid;
-  grid-template-columns: 36px 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px;
+  grid-template-columns: 36px 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px 0.9fr;
   padding: 10px 20px;
   font-size: 11px; color: var(--text3);
   text-transform: uppercase; letter-spacing: 0.8px;
@@ -283,7 +291,7 @@ body {
 
 .lead-row {
   display: grid;
-  grid-template-columns: 36px 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px;
+  grid-template-columns: 36px 1.8fr 1.1fr 1.4fr 0.7fr 0.7fr 0.8fr 80px 0.9fr;
   padding: 12px 20px; align-items: center;
   border-bottom: 1px solid var(--border);
   cursor: pointer; transition: background 0.1s;
@@ -851,23 +859,23 @@ body {
 
       <!-- Stat cards (bound to /api/stats) -->
       <div id="leads-stats" style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px;">
-        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+        <div class="stat-card clickable" style="background:#1a1f2e;border:1px solid #2d3748;" onclick="statCardNav('total')" title="Show all leads">
           <div class="stat-label">Total Leads</div><div class="stat-value" id="ls-total">—</div>
         </div>
-        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+        <div class="stat-card clickable" style="background:#1a1f2e;border:1px solid #2d3748;" onclick="statCardNav('new')" title="New leads collected today">
           <div class="stat-label">New Today</div><div class="stat-value" id="ls-new">—</div>
         </div>
-        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+        <div class="stat-card clickable" style="background:#1a1f2e;border:1px solid #2d3748;" onclick="statCardNav('hot')" title="Hot leads (score ≥ 75)">
           <div class="stat-label">Hot Leads</div><div class="stat-value" id="ls-hot">—</div>
         </div>
-        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+        <div class="stat-card clickable" style="background:#1a1f2e;border:1px solid #2d3748;" onclick="statCardNav('approvals')" title="Leads pending review">
           <div class="stat-label">Pending Approvals</div><div class="stat-value" id="ls-approvals">—</div>
-          <button class="btn btn-ghost btn-sm" style="margin-top:6px;font-size:11px;padding:3px 8px;" onclick="approveAllPending()">Approve all</button>
+          <button class="btn btn-ghost btn-sm" style="margin-top:6px;font-size:11px;padding:3px 8px;" onclick="event.stopPropagation();approveAllPending()">Approve all</button>
         </div>
-        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+        <div class="stat-card clickable" style="background:#1a1f2e;border:1px solid #2d3748;" onclick="statCardNav('emails')" title="Leads contacted today">
           <div class="stat-label">Emails Sent Today</div><div class="stat-value" id="ls-emails">—</div>
         </div>
-        <div class="stat-card" style="background:#1a1f2e;border:1px solid #2d3748;">
+        <div class="stat-card clickable" style="background:#1a1f2e;border:1px solid #2d3748;" onclick="statCardNav('conversion')" title="Converted leads">
           <div class="stat-label">Conversion Rate</div><div class="stat-value" id="ls-conv">—</div>
         </div>
       </div>
@@ -921,6 +929,7 @@ body {
           <span class="th-sort" onclick="sortByHeader('score')">SCORE ⇅</span>
           <span>STATUS</span>
           <span></span>
+          <span class="th-sort" onclick="sortByHeader('created')" style="white-space:nowrap;">DATE ⇅</span>
         </div>
         <div id="leads-list">
           <div class="loading"><div class="spinner"></div>Loading leads...</div>
@@ -1435,7 +1444,7 @@ body {
         </div>
         <div>
           <div class="field-label">Website</div>
-          <div class="field-value" id="modal-website" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</div>
+          <div class="field-value" id="modal-website" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;word-break:break-all;">—</div>
         </div>
         <div>
           <div class="field-label">Address</div>
@@ -1520,6 +1529,7 @@ let searchQuery = '';
 let allLeads = [];
 let currentSort = 'created_desc';
 let currentCategory = 'all';
+let extraLeadParams = {};  // stat-card driven filters: min_score / created_today / contacted_today
 let selectedLeadIds = new Set();
 
 // ─────────────────────────────────────────────
@@ -1786,6 +1796,9 @@ async function loadLeads() {
     const params = new URLSearchParams({ limit: 500, offset: 0, sort: currentSort });
     if (currentFilter !== 'all') params.append('status', currentFilter);
     if (searchQuery) params.append('search', searchQuery);
+    Object.entries(extraLeadParams).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== false) params.append(k, v);
+    });
 
     const res = await fetch(`${API}/leads?${params}`).then(r => r.json());
     leadsMaster = res.leads || [];
@@ -1879,8 +1892,22 @@ function renderLeadRow(l) {
     '<div class="row-actions">',
     '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();quickContact(' + l.id + ')">&#128203;</button>',
     '</div>',
+    '<div style="font-size:12px;color:#718096;white-space:nowrap;">' + formatDate(l.created_at) + '</div>',
     '</div>'
   ].join('');
+}
+
+// Friendly "Date Collected" formatting for the leads table.
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d)) return '—';
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
 }
 
 // ── Selection ──
@@ -1942,6 +1969,7 @@ function sortByHeader(field) {
     name:    ['name_asc', 'name_desc'],
     reviews: ['reviews_desc', 'reviews_asc'],
     score:   ['score_desc', 'score_asc'],
+    created: ['created_desc', 'created_asc'],
   };
   const pair = map[field];
   if (!pair) return;
@@ -2000,9 +2028,42 @@ async function bulkDeleteSelected() {
 
 function filterLeads(status, el) {
   currentFilter = status;
+  extraLeadParams = {};  // a manual chip click clears any stat-card special filter
   document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   loadLeads();
+}
+
+// Keep the status filter-chip row in sync when a stat card sets the filter.
+function syncFilterChips(status) {
+  const labels = { all:'All', new:'New', contacted:'Contacted', interested:'Interested', converted:'Converted', declined:'Declined' };
+  const want = labels[status];
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.classList.toggle('active', !!want && c.textContent.trim() === want);
+  });
+}
+
+// Stat cards in the All Leads section navigate to a filtered view of the table.
+function statCardNav(which) {
+  extraLeadParams = {};
+  currentCategory = 'all';
+  switch (which) {
+    case 'total':                          // Total Leads → all, no filter
+      currentFilter = 'all'; syncFilterChips('all'); break;
+    case 'new':                            // New Today → status=new, created today
+      currentFilter = 'new'; extraLeadParams = { created_today: true }; syncFilterChips('new'); break;
+    case 'hot':                            // Hot Leads → score >= 75
+      currentFilter = 'all'; extraLeadParams = { min_score: 75 }; syncFilterChips('all'); break;
+    case 'approvals':                      // Pending Approvals → status=pending_review
+      currentFilter = 'pending_review'; syncFilterChips('pending_review'); break;
+    case 'emails':                         // Emails Sent Today → contacted today
+      currentFilter = 'contacted'; extraLeadParams = { contacted_today: true }; syncFilterChips('contacted'); break;
+    case 'conversion':                     // Conversion Rate → status=converted
+      currentFilter = 'converted'; syncFilterChips('converted'); break;
+  }
+  loadLeads();
+  const table = document.querySelector('#view-leads .panel');
+  if (table) table.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 let searchTimer;
@@ -2429,12 +2490,33 @@ function safeSet(id, val, isInput) {
   else el.textContent = val || '—';
 }
 
+// Render the modal Website field with a flag when a lead has no real website
+// (none at all, or only a social-media page) — these are the prime targets.
+function renderWebsiteField(lead) {
+  const el = document.getElementById('modal-website');
+  if (!el) return;
+  const website = (lead.website || '').trim();
+  const isSocial = ['instagram.com', 'facebook.com', 'twitter.com', 'linkedin.com']
+    .some(s => website.includes(s));
+  const flag = (text) => `<span style="background:rgba(252,129,129,0.15);border:1px solid #fc8181;`
+    + `color:#fc8181;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px;">${text}</span>`;
+
+  if (!website) {
+    el.innerHTML = `<span style="color:#fc8181;">No website</span>${flag('🌐 Needs Website')}`;
+  } else if (isSocial) {
+    el.innerHTML = `<a href="${website}" target="_blank" style="color:#4a9eff;word-break:break-all;">${website}</a>`
+      + flag('🌐 Social Only — Needs Website');
+  } else {
+    el.innerHTML = `<a href="${website}" target="_blank" style="color:#4a9eff;word-break:break-all;">${website}</a>`;
+  }
+}
+
 function populateLeadModal(lead) {
   safeSet('modal-name', lead.name);
   safeSet('modal-type', lead.business_type);
   safeSet('modal-phone', lead.phone);
   safeSet('modal-score', (lead.reviews || 0) + ' reviews · Score ' + (lead.score || 0));
-  safeSet('modal-website', lead.website);
+  renderWebsiteField(lead);
   safeSet('modal-address', lead.address);
   safeSet('modal-whatsapp', lead.whatsapp_message || 'No message generated yet');
   safeSet('modal-email-input', lead.email, true);

@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Proof Asset Pack — Talktiv AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand: #6366f1;
+    --brand-light: #eef2ff;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --bg: #f9fafb;
+    --white: #ffffff;
+    --success: #10b981;
+    --gold: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* Header */
+  .header {
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+    padding: 20px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .header-brand {
+    font-size: 13px;
+    color: var(--brand);
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+  .header-expiry {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(135deg, var(--brand) 0%, #818cf8 100%);
+    color: white;
+    padding: 40px 24px;
+    text-align: center;
+  }
+  .hero-label {
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    opacity: 0.8;
+    margin-bottom: 8px;
+  }
+  .hero h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(24px, 5vw, 36px);
+    margin-bottom: 8px;
+  }
+  .hero-sub {
+    font-size: 14px;
+    opacity: 0.85;
+  }
+
+  /* Container */
+  .container { max-width: 780px; margin: 0 auto; padding: 32px 20px 64px; }
+
+  /* Section */
+  .section {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 24px;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .section-num {
+    width: 28px; height: 28px;
+    background: var(--brand);
+    color: white;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600;
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+  }
+  .section-desc {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* Asset cards */
+  .asset-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .asset-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--brand);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .asset-text {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+  .copy-btn {
+    position: absolute;
+    top: 12px; right: 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 4px 12px;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    transition: all 0.15s;
+  }
+  .copy-btn:hover { border-color: var(--brand); color: var(--brand); }
+  .copy-btn.copied { border-color: var(--success); color: var(--success); }
+
+  /* Email cards */
+  .email-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .email-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+    background: var(--white);
+    user-select: none;
+  }
+  .email-header:hover { background: var(--bg); }
+  .day-badge {
+    background: var(--brand-light);
+    color: var(--brand);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .email-subject { font-size: 14px; font-weight: 500; flex: 1; }
+  .email-chevron { color: var(--muted); font-size: 12px; transition: transform 0.2s; }
+  .email-body-wrap {
+    display: none;
+    padding: 16px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    position: relative;
+  }
+  .email-body-wrap.open { display: block; }
+  .email-header.open .email-chevron { transform: rotate(180deg); }
+  .email-body { font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
+
+  /* Captions grid */
+  .captions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .caption-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    position: relative;
+  }
+  .caption-type {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--brand);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .caption-text { font-size: 13px; line-height: 1.7; }
+  .caption-tags { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+
+  /* Regenerate section */
+  .regen-section {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .regen-counter {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .regen-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .regen-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+  .regen-dot.used { background: var(--brand); }
+  .btn-regen {
+    background: var(--brand);
+    color: white;
+    border: none;
+    padding: 14px 36px;
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-regen:hover { background: #4f46e5; transform: translateY(-1px); }
+  .btn-regen:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+  .btn-regen.loading::after {
+    content: '...';
+    animation: dots 1s steps(3) infinite;
+  }
+  @keyframes dots { to { content: '...'; } }
+
+  /* Upsell CTA */
+  .upsell-cta {
+    display: none;
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: 1px solid var(--gold);
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .upsell-cta.visible { display: block; }
+  .upsell-cta h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px;
+    color: #92400e;
+    margin-bottom: 10px;
+  }
+  .upsell-cta p { color: #78350f; font-size: 14px; margin-bottom: 20px; }
+  .btn-book {
+    background: var(--gold);
+    color: #1a1a2e;
+    border: none;
+    padding: 14px 36px;
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.2s;
+  }
+  .btn-book:hover { background: #d97706; transform: translateY(-1px); }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 32px 20px;
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+  .footer a { color: var(--brand); text-decoration: none; }
+
+  @media (max-width: 600px) {
+    .captions-grid { grid-template-columns: 1fr; }
+    .hero { padding: 32px 16px; }
+    .container { padding: 20px 16px 48px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-brand">✦ Talktiv AI — Proof Asset Pack</div>
+  <div class="header-expiry" id="expiry-text"></div>
+</div>
+
+<div class="hero">
+  <div class="hero-label">Your personalised assets</div>
+  <h1 id="hero-business-name">Loading...</h1>
+  <div class="hero-sub" id="hero-sub"></div>
+</div>
+
+<div class="container">
+
+  <!-- Section 1: Google Business Profile -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">1</div>
+      <div>
+        <div class="section-title">Google Business Profile</div>
+        <div class="section-desc">Copy and paste directly into your GBP listing</div>
+      </div>
+    </div>
+    <div class="asset-card">
+      <div class="asset-label">Short tagline · 150 chars</div>
+      <button class="copy-btn" onclick="copyEl('bio-short', this)">Copy</button>
+      <div class="asset-text" id="bio-short"></div>
+    </div>
+    <div class="asset-card">
+      <div class="asset-label">Full description · 750 chars</div>
+      <button class="copy-btn" onclick="copyEl('bio-full', this)">Copy</button>
+      <div class="asset-text" id="bio-full"></div>
+    </div>
+  </div>
+
+  <!-- Section 2: Email Drip -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">2</div>
+      <div>
+        <div class="section-title">5-Email Drip Sequence</div>
+        <div class="section-desc">Click each email to expand · Ready to send</div>
+      </div>
+    </div>
+    <div id="email-list"></div>
+  </div>
+
+  <!-- Section 3: Social Captions -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-num">3</div>
+      <div>
+        <div class="section-title">10 Instagram Captions</div>
+        <div class="section-desc">Click copy on any caption to use it</div>
+      </div>
+    </div>
+    <div class="captions-grid" id="captions-grid"></div>
+  </div>
+
+  <!-- Regenerate section -->
+  <div class="regen-section" id="regen-section">
+    <div class="regen-counter" id="regen-counter"></div>
+    <div class="regen-dots" id="regen-dots"></div>
+    <button class="btn-regen" id="btn-regen" onclick="regenerate()">
+      ✦ Regenerate Assets
+    </button>
+    <p style="font-size:12px;color:#9ca3af;margin-top:12px;">
+      Get fresh copy with different angles and creative direction
+    </p>
+  </div>
+
+  <!-- Upsell CTA (shown after regen limit) -->
+  <div class="upsell-cta" id="upsell-cta">
+    <h3>Ready to implement this for your business?</h3>
+    <p>You've seen what AI can generate. Imagine it running
+    automatically for your business every month — plus a professional
+    website, WhatsApp automation, and AI that answers your calls.</p>
+    <a href="https://calendly.com/manikanta-talktivai/15min"
+       target="_blank" class="btn-book">
+      📅 Book a free 15-minute call
+    </a>
+  </div>
+
+</div>
+
+<div class="footer">
+  Powered by <a href="https://talktivai.com" target="_blank">Talktiv AI</a>
+  · These assets were generated specifically for
+  <span id="footer-biz"></span>
+  · <a href="mailto:manikanta@talktivai.com">Contact us</a>
+</div>
+
+<script>
+/* __PACK_DATA__ */
+</script>
+<script>
+const pack = window.PROOF_PACK || {};
+const assets = pack.assets || {};
+
+function init() {
+  // Hero
+  document.getElementById('hero-business-name').textContent =
+    pack.business_name || 'Your Business';
+  document.getElementById('hero-sub').textContent =
+    (pack.category || '') + (pack.city ? ' · ' + pack.city : '');
+  document.getElementById('footer-biz').textContent =
+    pack.business_name || '';
+
+  // Expiry
+  if (pack.expires_at) {
+    const exp = new Date(pack.expires_at);
+    const days = Math.ceil((exp - new Date()) / 86400000);
+    document.getElementById('expiry-text').textContent =
+      days > 0 ? `Expires in ${days} day${days !== 1 ? 's' : ''}` : 'Expires today';
+  }
+
+  // GBP Bio
+  const bio = assets.google_bio || {};
+  document.getElementById('bio-short').textContent = bio.short || '';
+  document.getElementById('bio-full').textContent = bio.full || '';
+
+  // Email drip
+  const emailList = document.getElementById('email-list');
+  (assets.email_drip || []).forEach((email, i) => {
+    const card = document.createElement('div');
+    card.className = 'email-card';
+    card.innerHTML =
+      '<div class="email-header" onclick="toggleEmail(this)">' +
+        '<span class="day-badge">DAY ' + email.day + '</span>' +
+        '<div>' +
+          '<div class="email-subject">' + esc(email.subject) + '</div>' +
+        '</div>' +
+        '<span class="email-chevron">▼</span>' +
+      '</div>' +
+      '<div class="email-body-wrap">' +
+        '<button class="copy-btn" style="top:12px;right:12px" ' +
+          'onclick="copyText(\'' + i + '\',this)">Copy</button>' +
+        '<div class="email-body" id="email-body-' + i + '">' +
+          esc(email.body) + '</div>' +
+      '</div>';
+    emailList.appendChild(card);
+  });
+
+  // Captions
+  const grid = document.getElementById('captions-grid');
+  (assets.social_captions || []).forEach((c, i) => {
+    const card = document.createElement('div');
+    card.className = 'caption-card';
+    card.innerHTML =
+      '<button class="copy-btn" onclick="copyCaption(' + i + ',this)">Copy</button>' +
+      '<div class="caption-type">' + esc(c.type) + '</div>' +
+      '<div class="caption-text" id="cap-' + i + '">' + esc(c.caption) + '</div>' +
+      '<div class="caption-tags" id="cap-tags-' + i + '">' + esc(c.hashtags) + '</div>';
+    grid.appendChild(card);
+  });
+
+  updateRegenUI();
+}
+
+function updateRegenUI() {
+  const used = pack.regen_count || 0;
+  const remaining = 2 - used;
+  const btn = document.getElementById('btn-regen');
+  const counter = document.getElementById('regen-counter');
+  const dots = document.getElementById('regen-dots');
+  const upsell = document.getElementById('upsell-cta');
+
+  // Dots
+  dots.innerHTML = '';
+  for (let i = 0; i < 2; i++) {
+    const d = document.createElement('div');
+    d.className = 'regen-dot' + (i < used ? ' used' : '');
+    dots.appendChild(d);
+  }
+
+  if (remaining <= 0) {
+    counter.textContent = 'You have used both regenerations';
+    btn.style.display = 'none';
+    upsell.classList.add('visible');
+  } else {
+    counter.textContent = remaining + ' of 2 regenerations remaining';
+    btn.style.display = 'inline-block';
+  }
+}
+
+async function regenerate() {
+  const btn = document.getElementById('btn-regen');
+  btn.disabled = true;
+  btn.textContent = '✦ Generating';
+  btn.classList.add('loading');
+
+  try {
+    const res = await fetch('/api/proof/' + pack.code + '/regenerate', {
+      method: 'POST'
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || 'Regeneration failed');
+      btn.disabled = false;
+      btn.textContent = '✦ Regenerate Assets';
+      btn.classList.remove('loading');
+      return;
+    }
+
+    // Update local state and re-render
+    pack.regen_count = data.regen_count;
+    pack.assets = data.assets;
+    Object.assign(assets, data.assets);
+
+    // Re-render bio
+    document.getElementById('bio-short').textContent =
+      data.assets.google_bio?.short || '';
+    document.getElementById('bio-full').textContent =
+      data.assets.google_bio?.full || '';
+
+    // Re-render emails
+    document.getElementById('email-list').innerHTML = '';
+    (data.assets.email_drip || []).forEach((email, i) => {
+      const card = document.createElement('div');
+      card.className = 'email-card';
+      card.innerHTML =
+        '<div class="email-header" onclick="toggleEmail(this)">' +
+          '<span class="day-badge">DAY ' + email.day + '</span>' +
+          '<div><div class="email-subject">' + esc(email.subject) + '</div></div>' +
+          '<span class="email-chevron">▼</span>' +
+        '</div>' +
+        '<div class="email-body-wrap">' +
+          '<button class="copy-btn" style="top:12px;right:12px" ' +
+            'onclick="copyText(\'' + i + '\',this)">Copy</button>' +
+          '<div class="email-body" id="email-body-' + i + '">' +
+            esc(email.body) + '</div>' +
+        '</div>';
+      document.getElementById('email-list').appendChild(card);
+    });
+
+    // Re-render captions
+    document.getElementById('captions-grid').innerHTML = '';
+    (data.assets.social_captions || []).forEach((c, i) => {
+      const card = document.createElement('div');
+      card.className = 'caption-card';
+      card.innerHTML =
+        '<button class="copy-btn" onclick="copyCaption(' + i + ',this)">Copy</button>' +
+        '<div class="caption-type">' + esc(c.type) + '</div>' +
+        '<div class="caption-text" id="cap-' + i + '">' + esc(c.caption) + '</div>' +
+        '<div class="caption-tags" id="cap-tags-' + i + '">' + esc(c.hashtags) + '</div>';
+      document.getElementById('captions-grid').appendChild(card);
+    });
+
+    btn.classList.remove('loading');
+    updateRegenUI();
+
+  } catch(e) {
+    alert('Error: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '✦ Regenerate Assets';
+    btn.classList.remove('loading');
+  }
+}
+
+function toggleEmail(header) {
+  header.classList.toggle('open');
+  header.nextElementSibling.classList.toggle('open');
+}
+
+function esc(s) {
+  return String(s||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function copyEl(id, btn) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function copyText(i, btn) {
+  const el = document.getElementById('email-body-' + i);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function copyCaption(i, btn) {
+  const text = (document.getElementById('cap-' + i)?.textContent || '') +
+               '\n\n' +
+               (document.getElementById('cap-tags-' + i)?.textContent || '');
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

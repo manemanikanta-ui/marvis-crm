@@ -20,6 +20,8 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta, timezone
 import threading
 import time
+import random
+import string
 from dotenv import load_dotenv
 
 from db import get_db as shared_get_db
@@ -63,13 +65,228 @@ async def add_csp_headers(request: Request, call_next):
     return response
 
 
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 import pathlib
 
 @app.get("/")
 @app.get("/dashboard")
 async def dashboard():
     return FileResponse(pathlib.Path(__file__).parent.parent / "frontend" / "index.html")
+
+
+# ─────────────────────────────────────────────
+# PROOF ASSET PORTAL (registered early — before any other routes match)
+# ─────────────────────────────────────────────
+
+@app.post("/api/proof/generate")
+async def proof_generate(request: Request):
+    """Generate proof asset pack for a business. Returns portal URL."""
+    try:
+        body = await request.json()
+        business_name = body.get("business_name", "").strip()
+        category      = body.get("category", "").strip()
+        city          = (body.get("city") or "Hyderabad").strip()
+        phone         = body.get("phone", "").strip()
+        website       = body.get("website", "").strip()
+        lead_id       = body.get("lead_id")
+
+        if not business_name:
+            return JSONResponse({"error": "business_name is required"}, status_code=400)
+
+        # Generate assets via Claude
+        from enrichment import generate_proof_assets
+        assets = await generate_proof_assets({
+            "name": business_name, "category": category,
+            "city": city, "phone": phone, "website": website
+        })
+        if "error" in assets:
+            return JSONResponse(assets, status_code=500)
+
+        # Create pack record
+        code = generate_proof_code()
+        expires_at = (datetime.utcnow() + timedelta(days=7)).isoformat()
+
+        conn = get_db()
+        conn.execute("""
+            INSERT INTO proof_packs
+            (code, lead_id, business_name, category, city, phone, website,
+             assets_json, expires_at)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (code, lead_id, business_name, category, city, phone, website,
+              json.dumps(assets), expires_at))
+        conn.commit()
+        conn.close()
+
+        # Build the portal URL from the request host (works on whatever port the
+        # CRM is actually running — currently 8002, not the old 8001).
+        base = str(request.base_url).rstrip("/")
+        portal_url = f"{base}/proof/{code}"
+        return JSONResponse({
+            "success": True,
+            "code": code,
+            "portal_url": portal_url,
+            "expires_at": expires_at,
+            "assets": assets
+        })
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": str(e), "trace": traceback.format_exc()},
+                            status_code=500)
+
+
+@app.get("/proof/{code}")
+async def proof_portal(code: str, request: Request):
+    """Serve the proof asset portal page for a given code."""
+    conn = get_db()
+    pack = conn.execute(
+        "SELECT * FROM proof_packs WHERE code = ?", (code.upper(),)
+    ).fetchone()
+    conn.close()
+
+    if not pack:
+        return HTMLResponse("<h2>Portal not found.</h2>", status_code=404)
+
+    pack = dict(pack)
+
+    # Check expiry
+    if pack["status"] == "expired" or (
+        pack["expires_at"] and
+        datetime.utcnow() > datetime.fromisoformat(pack["expires_at"])
+    ):
+        conn = get_db()
+        conn.execute("UPDATE proof_packs SET status='expired' WHERE code = ?",
+                     (pack["code"],))
+        conn.commit()
+        conn.close()
+        return HTMLResponse(_expired_page(pack), status_code=410)
+
+    # Increment view count
+    conn = get_db()
+    conn.execute("""
+        UPDATE proof_packs SET
+        view_count = view_count + 1,
+        last_viewed_at = datetime('now')
+        WHERE code = ?
+    """, (pack["code"],))
+    conn.commit()
+    conn.close()
+
+    # Telegram notification on first view (pack still holds the pre-increment count)
+    if pack["view_count"] == 0:
+        try:
+            from telegram_notify import notify
+            notify(f"👁 <b>Proof pack opened</b>\n{pack['business_name']}\nCode: {pack['code']}")
+        except Exception:
+            pass
+
+    assets = json.loads(pack["assets_json"] or "{}")
+
+    # Serve the portal HTML with the pack data injected
+    proof_html_path = os.path.join(
+        os.path.dirname(__file__), "..", "frontend", "proof.html"
+    )
+    with open(proof_html_path, encoding="utf-8") as f:
+        html = f.read()
+
+    pack_data = {**pack, "assets": assets}
+    pack_data.pop("assets_json", None)
+    html = html.replace(
+        "/* __PACK_DATA__ */",
+        f"window.PROOF_PACK = {json.dumps(pack_data)};"
+    )
+    return HTMLResponse(html)
+
+
+@app.post("/api/proof/{code}/regenerate")
+async def proof_regenerate(code: str):
+    """Regenerate assets for a proof pack. Max 2 regenerations."""
+    conn = get_db()
+    pack = conn.execute(
+        "SELECT * FROM proof_packs WHERE code = ?", (code.upper(),)
+    ).fetchone()
+    conn.close()
+
+    if not pack:
+        return JSONResponse({"error": "Pack not found"}, status_code=404)
+
+    pack = dict(pack)
+
+    if pack["regen_count"] >= 2:
+        return JSONResponse({
+            "error": "Regeneration limit reached",
+            "limit_reached": True
+        }, status_code=403)
+
+    # Generate new assets
+    from enrichment import generate_proof_assets
+    assets = await generate_proof_assets({
+        "name": pack["business_name"],
+        "category": pack["category"],
+        "city": pack["city"],
+        "phone": pack["phone"],
+        "website": pack["website"]
+    })
+
+    if "error" in assets:
+        return JSONResponse(assets, status_code=500)
+
+    new_regen_count = pack["regen_count"] + 1
+
+    conn = get_db()
+    conn.execute("""
+        UPDATE proof_packs SET
+        assets_json = ?, regen_count = ?
+        WHERE code = ?
+    """, (json.dumps(assets), new_regen_count, pack["code"]))
+    conn.commit()
+    conn.close()
+
+    # Telegram hot signal on 2nd regeneration
+    if new_regen_count >= 2:
+        try:
+            from telegram_notify import notify
+            notify(
+                f"🔥 <b>HOT SIGNAL — Regen limit hit</b>\n"
+                f"{pack['business_name']}\nCode: {pack['code']}\n"
+                f"They regenerated twice — call them now."
+            )
+        except Exception:
+            pass
+
+    return JSONResponse({
+        "success": True,
+        "assets": assets,
+        "regen_count": new_regen_count,
+        "regen_remaining": 2 - new_regen_count,
+        "limit_reached": new_regen_count >= 2
+    })
+
+
+@app.get("/api/proof/stats")
+async def proof_stats():
+    """Return all proof packs for admin view in MARVIS CRM."""
+    conn = get_db()
+    packs = conn.execute("""
+        SELECT id, code, business_name, category, city,
+               regen_count, view_count, status,
+               created_at, expires_at, last_viewed_at, converted
+        FROM proof_packs
+        ORDER BY created_at DESC
+    """).fetchall()
+    conn.close()
+    return JSONResponse([dict(p) for p in packs])
+
+
+def _expired_page(pack: dict) -> str:
+    return f"""<!DOCTYPE html><html><head><title>Expired</title>
+    <style>body{{font-family:sans-serif;text-align:center;padding:60px;
+    background:#f9f9f9;color:#333}}</style></head><body>
+    <h2>This proof pack has expired</h2>
+    <p>The assets for <strong>{pack['business_name']}</strong>
+    were available for 7 days.</p>
+    <p>Contact <a href="mailto:manikanta@talktivai.com">
+    manikanta@talktivai.com</a> to get a fresh pack.</p>
+    </body></html>"""
 
 DB_PATH = "data/crm.db"
 
@@ -188,6 +405,25 @@ def init_db():
             FOREIGN KEY (lead_id) REFERENCES leads(id)
         );
 
+        CREATE TABLE IF NOT EXISTS proof_packs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            code          TEXT UNIQUE NOT NULL,
+            lead_id       INTEGER REFERENCES leads(id),
+            business_name TEXT NOT NULL,
+            category      TEXT,
+            city          TEXT,
+            phone         TEXT,
+            website       TEXT,
+            assets_json   TEXT,
+            regen_count   INTEGER DEFAULT 0,
+            view_count    INTEGER DEFAULT 0,
+            created_at    TEXT DEFAULT (datetime('now')),
+            expires_at    TEXT,
+            last_viewed_at TEXT,
+            status        TEXT DEFAULT 'active',
+            converted     INTEGER DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
@@ -227,6 +463,19 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+
+
+def generate_proof_code() -> str:
+    """Generate a unique 6-char alphanumeric code, e.g. SMI924."""
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        conn = get_db()
+        exists = conn.execute(
+            "SELECT id FROM proof_packs WHERE code = ?", (code,)
+        ).fetchone()
+        conn.close()
+        if not exists:
+            return code
 
 # ─────────────────────────────────────────────
 # MODELS

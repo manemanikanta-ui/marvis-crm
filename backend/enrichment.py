@@ -15,6 +15,7 @@ import os
 import sqlite3
 import json
 import time
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -401,6 +402,134 @@ def enrich_batch(limit: int = 50, only_missing: bool = True) -> dict:
     print(f"\n✅ Done — Enriched: {enriched} | Failed: {failed}")
     return {"enriched": enriched, "failed": failed,
             "total": len(leads), "skipped": 0}
+
+
+async def generate_proof_assets(business: dict) -> dict:
+    """Generate three proof assets (GBP bio, 5-email drip, 10 captions) for a
+    business using Claude. Client-facing premium deliverable — uses Sonnet.
+
+    The Anthropic SDK call is synchronous; it is run in a worker thread via
+    asyncio.to_thread so the CRM event loop stays responsive during generation.
+    """
+    name     = business.get("name", "")
+    category = (business.get("category") or "").lower()
+    city     = business.get("city", "Hyderabad")
+    website  = (business.get("website") or "").strip()
+
+    is_social_only = any(s in website for s in
+        ["instagram.com", "facebook.com", "twitter.com"])
+    has_no_website = not website or is_social_only
+
+    website_note = ""
+    if has_no_website:
+        website_note = (
+            "IMPORTANT: This business has no proper website "
+            "(only social media or nothing). "
+            "The Google Business bio and emails should subtly "
+            "highlight the value of having a professional web presence."
+        )
+
+    prompt = f"""Generate a complete "Proof Asset Pack" for this business.
+
+Business: {name}
+Category: {category}
+City: {city}
+Website status: {"No website / social only" if has_no_website else website}
+{website_note}
+
+Generate three assets:
+
+1. GOOGLE BUSINESS PROFILE BIO
+- Short version: max 150 characters — punchy tagline
+- Full version: max 750 characters — warm, professional, includes
+  local keywords ({city}, {category}), trust signals, clear CTA
+
+2. EMAIL DRIP SEQUENCE — 5 emails
+Day 0: Warm welcome / introduction (150 words max)
+Day 2: Value tip relevant to their industry (120 words max)
+Day 5: Social proof / story (130 words max)
+Day 10: Gentle follow-up with specific offer (100 words max)
+Day 21: Final touch, leave door open (80 words max)
+Each email needs a subject line and preview text.
+Write as if the business owner is personally emailing their customers.
+Natural, warm, not corporate.
+
+3. INSTAGRAM CAPTIONS — 10 captions
+Mix of: trust-building, market insight, behind-the-scenes,
+service highlight, customer story hook, local pride,
+call-to-action, seasonal/timely, educational, personal brand.
+Each caption: 2-4 lines + 8-10 hashtags mixing local + industry tags.
+Naturally include Telugu words/phrases where authentic
+(meeru, mana {city}, nammakam etc).
+
+RULES:
+- Every asset must reference {name} and {city} specifically
+- Zero generic filler — every line earns its place
+- Email tone: personal, like a trusted local business owner
+- Caption tone: authentic local business, not global brand
+- No hallucinations — only factual claims we can verify
+
+Return ONLY valid JSON, no markdown, no explanation:
+{{
+  "google_bio": {{
+    "short": "...",
+    "full": "..."
+  }},
+  "email_drip": [
+    {{"day": 0, "subject": "...", "preview": "...", "body": "..."}},
+    {{"day": 2, "subject": "...", "preview": "...", "body": "..."}},
+    {{"day": 5, "subject": "...", "preview": "...", "body": "..."}},
+    {{"day": 10, "subject": "...", "preview": "...", "body": "..."}},
+    {{"day": 21, "subject": "...", "preview": "...", "body": "..."}}
+  ],
+  "social_captions": [
+    {{"type": "trust", "caption": "...", "hashtags": "..."}},
+    {{"type": "market insight", "caption": "...", "hashtags": "..."}},
+    {{"type": "behind the scenes", "caption": "...", "hashtags": "..."}},
+    {{"type": "service highlight", "caption": "...", "hashtags": "..."}},
+    {{"type": "customer story", "caption": "...", "hashtags": "..."}},
+    {{"type": "local pride", "caption": "...", "hashtags": "..."}},
+    {{"type": "call to action", "caption": "...", "hashtags": "..."}},
+    {{"type": "educational", "caption": "...", "hashtags": "..."}},
+    {{"type": "personal brand", "caption": "...", "hashtags": "..."}},
+    {{"type": "seasonal", "caption": "...", "hashtags": "..."}}
+  ]
+}}"""
+
+    raw = ""
+    try:
+        # Local client per call (matches the codebase pattern in enrichment/main).
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
+
+        # Synchronous SDK call — run off the event loop so the CRM stays responsive.
+        response = await asyncio.to_thread(
+            lambda: client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        )
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        assets = json.loads(raw)
+
+        # Validate structure
+        required = ["google_bio", "email_drip", "social_captions"]
+        if not all(k in assets for k in required):
+            return {"error": "Claude returned incomplete structure", "raw": raw[:300]}
+        if len(assets.get("email_drip", [])) != 5:
+            return {"error": "Email drip must have 5 emails", "raw": raw[:300]}
+        if len(assets.get("social_captions", [])) != 10:
+            return {"error": "Social captions must have 10 items", "raw": raw[:300]}
+
+        return assets
+
+    except json.JSONDecodeError as e:
+        return {"error": f"JSON parse failed: {e}", "raw": raw[:300]}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":

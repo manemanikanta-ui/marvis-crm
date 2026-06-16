@@ -395,6 +395,10 @@ body {
 .badge-logged::before { background: #cbd5e1; }
 .badge-ready_to_send { background: #f59e0b20; color: #f59e0b; }
 .badge-ready_to_send::before { background: #f59e0b; }
+.badge-active { background: #22d3a520; color: var(--green); }
+.badge-active::before { background: var(--green); }
+.badge-expired { background: #64748b30; color: #94a3b8; }
+.badge-expired::before { background: #94a3b8; }
 
 .row-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; }
 .lead-row:hover .row-actions { opacity: 1; }
@@ -746,6 +750,9 @@ body {
     </div>
     <div class="nav-item" onclick="showView('settings')">
       <span class="nav-icon">⚙️</span> Settings
+    </div>
+    <div class="nav-item" onclick="showView('proof-packs')">
+      <span class="nav-icon">🎯</span> Proof Packs
     </div>
   </nav>
   <div class="sidebar-footer">
@@ -1171,6 +1178,60 @@ body {
           <div class="panel-title">📅 Booked <span id="analytics-booked-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
         </div>
         <div id="analytics-booked-body" style="padding:16px 20px;">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- PROOF PACKS VIEW -->
+    <div id="view-proof-packs" style="display:none">
+
+      <!-- Generate form -->
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-header">
+          <div class="panel-title">🎯 Generate Proof Pack</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadProofPacks()">Refresh</button>
+        </div>
+        <div style="padding:16px 20px;display:flex;flex-direction:column;gap:12px;">
+          <div style="font-size:12px;color:var(--text3);">Pick a lead to autofill, or enter business details manually.</div>
+
+          <div>
+            <div class="field-label">Lead</div>
+            <select id="proof-lead-select" class="search-input" style="width:100%;" onchange="onProofLeadSelect()">
+              <option value="">— Manual entry —</option>
+            </select>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><div class="field-label">Business name *</div><input id="proof-name" class="search-input" style="width:100%;" placeholder="e.g. Brew &amp; Co Cafe"></div>
+            <div><div class="field-label">Category</div><input id="proof-category" class="search-input" style="width:100%;" placeholder="e.g. cafe"></div>
+            <div><div class="field-label">City</div><input id="proof-city" class="search-input" style="width:100%;" placeholder="Hyderabad"></div>
+            <div><div class="field-label">Phone</div><input id="proof-phone" class="search-input" style="width:100%;" placeholder="+91…"></div>
+            <div style="grid-column:1 / -1;"><div class="field-label">Website</div><input id="proof-website" class="search-input" style="width:100%;" placeholder="https://… or social link"></div>
+          </div>
+
+          <div>
+            <button class="btn btn-primary" id="proof-generate-btn" onclick="generateProofPack()">✦ Generate Proof Pack</button>
+          </div>
+
+          <div id="proof-result" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;">
+            <div class="field-label">Portal link</div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+              <input id="proof-result-url" class="search-input" style="flex:1;" readonly>
+              <button class="btn btn-outline btn-sm" onclick="copyProofResultUrl()">📋 Copy</button>
+              <a id="proof-result-open" class="btn btn-ghost btn-sm" target="_blank" href="#">Open ↗</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- All packs table -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">All Proof Packs <span id="proof-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+        </div>
+        <div id="proof-packs-body" style="padding:0 20px 20px;">
           <div class="loading"><div class="spinner"></div>Loading...</div>
         </div>
       </div>
@@ -1616,8 +1677,8 @@ let selectedLeadIds = new Set();
 // ─────────────────────────────────────────────
 // NAVIGATION
 // ─────────────────────────────────────────────
-const views = ['dashboard', 'leads', 'pipeline', 'followups', 'findleads', 'analytics', 'settings'];
-const titles = { dashboard: 'Dashboard', leads: 'All Leads', pipeline: 'Pipeline', followups: 'Follow-ups', findleads: 'Find Leads', analytics: 'Analytics', settings: 'Settings' };
+const views = ['dashboard', 'leads', 'pipeline', 'followups', 'findleads', 'analytics', 'settings', 'proof-packs'];
+const titles = { dashboard: 'Dashboard', leads: 'All Leads', pipeline: 'Pipeline', followups: 'Follow-ups', findleads: 'Find Leads', analytics: 'Analytics', settings: 'Settings', 'proof-packs': 'Proof Packs' };
 
 function showView(view) {
   views.forEach(v => {
@@ -1634,6 +1695,7 @@ function showView(view) {
   if (view === 'settings') loadSettings();
   if (view === 'findleads') initFindLeads();
   if (view === 'analytics') loadAnalytics();
+  if (view === 'proof-packs') loadProofPacks();
 }
 
 function routeFromHash() {
@@ -3043,6 +3105,137 @@ async function importLeads() {
 
 function openAddLead() {
   toast('Manual lead add — coming soon', '🛠️');
+}
+
+// ─────────────────────────────────────────────
+// PROOF PACKS
+// ─────────────────────────────────────────────
+let _proofLeads = [];
+
+async function loadProofPacks() {
+  loadProofLeadOptions();
+  const body = document.getElementById('proof-packs-body');
+  try {
+    const packs = await fetch(`${API}/proof/stats`).then(r => r.json());
+    renderProofPacksTable(Array.isArray(packs) ? packs : []);
+  } catch (e) {
+    if (body) body.innerHTML = '<div class="empty-state"><div class="empty-title">Failed to load proof packs</div></div>';
+  }
+}
+
+async function loadProofLeadOptions() {
+  const sel = document.getElementById('proof-lead-select');
+  if (!sel) return;
+  try {
+    const res = await fetch(`${API}/leads?limit=500`).then(r => r.json());
+    _proofLeads = res.leads || [];
+    sel.innerHTML = '<option value="">— Manual entry —</option>' +
+      _proofLeads.map(l =>
+        `<option value="${l.id}">${pEsc(l.name)}${l.business_type ? ' · ' + pEsc(l.business_type) : ''}</option>`
+      ).join('');
+  } catch (e) { /* leave manual-only */ }
+}
+
+function onProofLeadSelect() {
+  const id = document.getElementById('proof-lead-select').value;
+  const lead = _proofLeads.find(l => String(l.id) === String(id));
+  if (!lead) return;
+  document.getElementById('proof-name').value     = lead.name || '';
+  document.getElementById('proof-category').value = lead.business_type || '';
+  document.getElementById('proof-city').value     = lead.city || lead.address || 'Hyderabad';
+  document.getElementById('proof-phone').value    = lead.phone || '';
+  document.getElementById('proof-website').value  = lead.website || '';
+}
+
+async function generateProofPack() {
+  const name = document.getElementById('proof-name').value.trim();
+  if (!name) { toast('Business name is required', '⚠️'); return; }
+  const payload = {
+    business_name: name,
+    category: document.getElementById('proof-category').value.trim(),
+    city:     document.getElementById('proof-city').value.trim() || 'Hyderabad',
+    phone:    document.getElementById('proof-phone').value.trim(),
+    website:  document.getElementById('proof-website').value.trim(),
+  };
+  const leadId = document.getElementById('proof-lead-select').value;
+  if (leadId) payload.lead_id = Number(leadId);
+
+  const btn = document.getElementById('proof-generate-btn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '✦ Generating…';
+  try {
+    const res = await fetch(`${API}/proof/generate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      toast(data.error || 'Generation failed', '❌');
+    } else {
+      const url = data.portal_url || (window.location.origin + '/proof/' + data.code);
+      document.getElementById('proof-result-url').value = url;
+      document.getElementById('proof-result-open').href = url;
+      document.getElementById('proof-result').style.display = 'block';
+      toast('Proof pack generated', '✅');
+      loadProofPacks();
+    }
+  } catch (e) {
+    toast('Error: ' + e.message, '❌');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+function copyProofResultUrl() {
+  const url = document.getElementById('proof-result-url').value;
+  if (url) navigator.clipboard.writeText(url).then(() => toast('Link copied!', '📋'));
+}
+
+function copyProofLink(code) {
+  const url = window.location.origin + '/proof/' + code;
+  navigator.clipboard.writeText(url).then(() => toast('Link copied!', '📋'));
+}
+
+function renderProofPacksTable(packs) {
+  const body = document.getElementById('proof-packs-body');
+  const countEl = document.getElementById('proof-count');
+  if (countEl) countEl.textContent = '(' + packs.length + ')';
+  if (!packs.length) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-title">No proof packs yet</div><div class="empty-sub">Generate one above.</div></div>';
+    return;
+  }
+  const td = 'padding:8px;border-bottom:1px solid var(--border);';
+  const rows = packs.map(p => {
+    const status = p.status || 'active';
+    return '<tr>'
+      + '<td style="' + td + '">' + pEsc(p.business_name) + '</td>'
+      + '<td style="' + td + "font-family:'DM Mono',monospace;\">" + pEsc(p.code) + '</td>'
+      + '<td style="' + td + '">' + (p.view_count || 0) + '</td>'
+      + '<td style="' + td + '">' + (p.regen_count || 0) + '/2</td>'
+      + '<td style="' + td + '"><span class="badge badge-' + status + '">' + status + '</span></td>'
+      + '<td style="' + td + 'font-size:11px;color:var(--text3);">' + pDate(p.created_at) + '</td>'
+      + '<td style="' + td + 'font-size:11px;color:var(--text3);">' + pDate(p.expires_at) + '</td>'
+      + '<td style="' + td + '"><button class="btn btn-ghost btn-sm" onclick="copyProofLink(\'' + pEsc(p.code) + '\')">📋 Copy Link</button></td>'
+      + '</tr>';
+  }).join('');
+  const headers = ['Business', 'Code', 'Views', 'Regens', 'Status', 'Created', 'Expires', ''];
+  const th = 'text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text3);font-weight:600;white-space:nowrap;';
+  body.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+    + '<thead><tr>' + headers.map(h => '<th style="' + th + '">' + h + '</th>').join('') + '</tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>';
+}
+
+function pEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+function pDate(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d)) return '—';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
 }
 
 // ─────────────────────────────────────────────

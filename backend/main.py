@@ -356,12 +356,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS leads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            contact_name TEXT DEFAULT '',
             business_type TEXT,
             phone TEXT,
             email TEXT,
             email_source TEXT DEFAULT '',
             website TEXT,
             address TEXT,
+            city TEXT DEFAULT '',
             rating REAL,
             reviews INTEGER DEFAULT 0,
             score INTEGER DEFAULT 0,
@@ -461,6 +463,12 @@ def init_db():
         INSERT OR IGNORE INTO settings VALUES ('office_hours_only', 'true');
         INSERT OR IGNORE INTO settings VALUES ('pause_on_failures', 'true');
     """)
+    # Additive migrations for existing DBs (CREATE IF NOT EXISTS won't add new columns).
+    for _col in ("contact_name", "city"):
+        try:
+            conn.execute(f"ALTER TABLE leads ADD COLUMN {_col} TEXT DEFAULT ''")
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 
@@ -483,6 +491,8 @@ def generate_proof_code() -> str:
 
 class LeadCreate(BaseModel):
     name: str
+    contact_name: Optional[str] = ""
+    city: Optional[str] = ""
     business_type: Optional[str] = ""
     phone: Optional[str] = ""
     email: Optional[str] = ""
@@ -495,6 +505,8 @@ class LeadCreate(BaseModel):
     email_subject: Optional[str] = ""
     email_body: Optional[str] = ""
     notes: Optional[str] = ""
+    status: Optional[str] = "new"
+    source: Optional[str] = "manual"
 
 class LeadUpdate(BaseModel):
     status: Optional[str] = None
@@ -736,23 +748,33 @@ async def update_lead(lead_id: int, update: LeadUpdate):
 
 @app.post("/api/leads")
 async def create_lead(lead: LeadCreate):
+    # Score from the provided contact fields (so manual leads rank like scraped ones).
+    score = lead.score or compute_lead_score(
+        reviews=lead.reviews or 0,
+        website=lead.website or "",
+        phone=lead.phone or "",
+        email=lead.email or "",
+    )
     conn = get_db()
     cursor = conn.execute("""
-        INSERT INTO leads (name, business_type, phone, email, website, address,
-            rating, reviews, score, whatsapp_message, email_subject, email_body, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (lead.name, lead.business_type, lead.phone, lead.email, lead.website,
-          lead.address, lead.rating, lead.reviews, lead.score,
+        INSERT INTO leads (name, contact_name, business_type, phone, email, website, address, city,
+            rating, reviews, score, status, source,
+            whatsapp_message, email_subject, email_body, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (lead.name, lead.contact_name, lead.business_type, lead.phone, lead.email, lead.website,
+          lead.address, lead.city, lead.rating, lead.reviews, score,
+          lead.status or "new", lead.source or "manual",
           lead.whatsapp_message, lead.email_subject, lead.email_body, lead.notes))
     conn.commit()
     lead_id = cursor.lastrowid
+    row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
     conn.close()
     emit_hud_event("new_lead", {
         "name": lead.name,
         "category": lead.business_type or "",
         "lead_id": lead_id,
     })
-    return {"success": True, "id": lead_id}
+    return {"success": True, "id": lead_id, "lead": dict(row) if row else None}
 
 @app.delete("/api/leads/{lead_id}")
 async def delete_lead(lead_id: int):

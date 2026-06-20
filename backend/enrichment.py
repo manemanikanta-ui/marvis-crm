@@ -35,9 +35,11 @@ def build_outreach_prompt(lead: dict) -> str:
     """Business-aware outreach prompt: detects what each lead is missing and
     tailors WhatsApp + email to it. Produces JSON {whatsapp, email_subject, email_body}."""
     name = lead.get('name', 'your business')
+    contact_name = (lead.get('contact_name') or '').strip()
     # DB stores category under `business_type`; fall back to `category` for compatibility.
     category = (lead.get('category') or lead.get('business_type') or '').lower()
-    city = lead.get('city') or lead.get('location') or 'Hyderabad'
+    # The LEAD's city — never default to our own city. Fall back to address if present.
+    city = (lead.get('city') or lead.get('location') or lead.get('address') or '').strip()
     reviews = lead.get('reviews', 0) or 0
     website = (lead.get('website') or '').strip()
 
@@ -99,13 +101,19 @@ def build_outreach_prompt(lead: dict) -> str:
         website_note = (f"Their only web presence is social media ({website}) — "
                        f"mention we can build a proper business website.")
 
+    greeting_name = contact_name if contact_name else "there"
+    city_line = city if city else "Unknown"
+    city_phrase = f" in {city}" if city else ""
+
     return f"""You are writing personalised cold outreach for Manikanta Mane,
-founder of Talktiv AI, Hyderabad.
+founder of Talktiv AI. The messages are FROM Manikanta TO the business owner below.
+Never address Manikanta, and never use Manikanta's own location as the lead's city.
 
 Business details:
-Name: {name}
+Business name: {name}
+Contact person: {greeting_name}
 Category: {category}
-City: {city}
+City: {city_line}
 Google Reviews: {reviews}
 Website status: {'No website' if has_no_website else ('Social only: ' + website if is_social_only else 'Has website')}
 
@@ -118,16 +126,18 @@ What we can specifically offer them: {offering_text}
 Write three pieces of outreach:
 
 1. WhatsApp message (max 100 words):
-- Warm and personal, written as Manikanta personally
-- Reference {name} and {city} specifically
+- Start with "Hi {greeting_name},"
+- Then reference their business naturally, e.g. "noticed {name}{city_phrase}..."
 - Mention ONE specific thing we can do for them based on what they're missing
 - End with a single question that invites a reply
+- Warm and personal, as Manikanta personally — sign off as "Manikanta, Talktiv AI"
 - Natural tone — not salesy, not corporate
 - If they have 500+ reviews, acknowledge their established reputation
 
 2. Email subject line (max 55 characters)
 
 3. Email body (max 160 words):
+- Open with "Hi {greeting_name},"
 - Same personal tone as WhatsApp
 - Reference their specific pain point: {pain}
 - Mention what we can build for them specifically
@@ -137,9 +147,9 @@ STRICT RULES:
 - Never say "Talktiv AI talkbots" or "voice bots" or "AI agents" generically
 - Never use phrases like "I hope this finds you well" or "I wanted to reach out"
 - Never make claims we can't deliver (no "guaranteed results" or "100% success")
-- Always reference the business name and city naturally
+- Always reference the business name {name} naturally (mention the city only if provided above)
 - If website is missing or social-only, always mention website building
-- Write in a way that feels like a local Hyderabad professional, not a global SaaS company
+- Write like a real person reaching out, not a global SaaS company
 
 Return ONLY valid JSON, no markdown:
 {{"whatsapp": "...", "email_subject": "...", "email_body": "..."}}"""
@@ -284,26 +294,44 @@ def enrich_lead_in_db(lead_id: int) -> dict:
             break
         print(f"  ⚠️ Validation failed for {lead['name'][:40]} (attempt {attempt + 1}): {reason}")
 
-    email_valid = result is not None
-    if result is None:
-        result = candidate or {}
+    # Use the best candidate we have (a validated one if found, else the last attempt).
+    result = result or candidate or {}
 
-    whatsapp_message = result.get("whatsapp_message", "")
-    email_subject = ""
-    email_body = ""
+    whatsapp_message = (result.get("whatsapp_message") or "").strip()
+    email_subject = (result.get("email_subject") or "").strip()
+    email_body = (result.get("email_body") or "").strip()
+
+    # Save the email whenever Claude produced a usable subject + body. Keep a light
+    # hallucination guard, but no longer discard good emails just because the strict
+    # business-name match failed — that was leaving subject/body rendering as "—".
+    bad_phrases = [
+        'guaranteed results', 'proven roi', 'i hope this finds you',
+        'i wanted to reach out', 'talkbot', 'voice bot',
+    ]
+    email_combined = (email_subject + " " + email_body).lower()
+    email_valid = bool(
+        len(email_subject) >= 5
+        and len(email_body) >= 50
+        and not any(p in email_combined for p in bad_phrases)
+    )
+    if not email_valid:
+        email_subject, email_body = "", ""
+
     sequence_json = ""
-    if email_valid:
-        email_subject = result.get("email_subject", "")
-        email_body = result.get("email_body", "")
+    if email_subject and email_body:
         sequence_json = json.dumps(
-            {k: result.get(k, {}) for k in ("day0", "day3", "day7")},
+            {
+                "day0": {"subject": email_subject, "body": email_body},
+                "day3": result.get("day3", {}),
+                "day7": result.get("day7", {}),
+            },
             ensure_ascii=False,
         )
 
     if not (whatsapp_message or email_subject):
         return {
             "success": False,
-            "error": "Generation failed validation" if not email_valid else "Generation failed",
+            "error": "Generation failed",
             "validated": email_valid,
         }
 

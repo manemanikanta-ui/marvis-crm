@@ -1548,6 +1548,69 @@ body {
 </div>
 
 <!-- LEAD MODAL -->
+<div class="modal-overlay" id="add-lead-modal" onclick="if(event.target===this)closeAddLead()">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;">Add Lead</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:4px;">Manually add a business to your leads</div>
+      </div>
+      <button class="btn btn-ghost" onclick="closeAddLead()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-grid">
+        <div>
+          <div class="field-label">Business name *</div>
+          <input id="add-name" class="search-input" style="width:100%;" placeholder="e.g. Test Cafe">
+        </div>
+        <div>
+          <div class="field-label">Contact name</div>
+          <input id="add-contact-name" class="search-input" style="width:100%;" placeholder="e.g. Priya (optional)">
+        </div>
+        <div>
+          <div class="field-label">Category</div>
+          <input id="add-category" class="search-input" style="width:100%;" placeholder="e.g. cafe">
+        </div>
+        <div>
+          <div class="field-label">City</div>
+          <input id="add-city" class="search-input" style="width:100%;" value="Hyderabad" placeholder="Hyderabad">
+        </div>
+        <div>
+          <div class="field-label">Phone</div>
+          <input id="add-phone" class="search-input" style="width:100%;" placeholder="+91…">
+        </div>
+        <div>
+          <div class="field-label">Email *</div>
+          <input id="add-email" type="email" class="search-input" style="width:100%;" placeholder="name@example.com">
+        </div>
+        <div>
+          <div class="field-label">Website</div>
+          <input id="add-website" class="search-input" style="width:100%;" placeholder="https://…">
+        </div>
+        <div>
+          <div class="field-label">Status</div>
+          <select id="add-status" class="status-select" style="width:100%;">
+            <option value="new" selected>New</option>
+            <option value="pending_review">Pending Review</option>
+            <option value="approved">Approved</option>
+            <option value="contacted">Contacted</option>
+            <option value="interested">Interested</option>
+          </select>
+        </div>
+        <div>
+          <div class="field-label">Source</div>
+          <input id="add-source" class="search-input" style="width:100%;" value="manual">
+        </div>
+      </div>
+      <div id="add-lead-error" style="display:none;color:var(--red);font-size:12px;margin-top:10px;"></div>
+      <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end;">
+        <button class="btn btn-outline" onclick="closeAddLead()">Cancel</button>
+        <button class="btn btn-primary" id="add-lead-save" onclick="createLead()">Save Lead</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="lead-modal">
   <div class="modal">
     <div class="modal-header">
@@ -3104,7 +3167,69 @@ async function importLeads() {
 }
 
 function openAddLead() {
-  toast('Manual lead add — coming soon', '🛠️');
+  ['add-name', 'add-category', 'add-phone', 'add-email', 'add-website'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const city = document.getElementById('add-city'); if (city) city.value = 'Hyderabad';
+  const src = document.getElementById('add-source'); if (src) src.value = 'manual';
+  const st = document.getElementById('add-status'); if (st) st.value = 'new';
+  const err = document.getElementById('add-lead-error'); if (err) { err.style.display = 'none'; err.textContent = ''; }
+  document.getElementById('add-lead-modal').classList.add('open');
+}
+
+function closeAddLead() {
+  document.getElementById('add-lead-modal').classList.remove('open');
+}
+
+async function createLead() {
+  const err = document.getElementById('add-lead-error');
+  const showErr = (m) => { if (err) { err.textContent = m; err.style.display = 'block'; } else { toast(m, '⚠️'); } };
+
+  const name = document.getElementById('add-name').value.trim();
+  const email = document.getElementById('add-email').value.trim();
+  if (!name) { showErr('Business name is required'); return; }
+  if (!email) { showErr('Email is required (for email sequence testing)'); return; }
+
+  const payload = {
+    name,
+    contact_name: document.getElementById('add-contact-name').value.trim(),
+    business_type: document.getElementById('add-category').value.trim(),
+    city: document.getElementById('add-city').value.trim(),
+    phone: document.getElementById('add-phone').value.trim(),
+    email,
+    website: document.getElementById('add-website').value.trim(),
+    status: document.getElementById('add-status').value,
+    source: document.getElementById('add-source').value.trim() || 'manual',
+  };
+
+  const btn = document.getElementById('add-lead-save');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${API}/leads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) { showErr((data && data.detail) || 'Failed to save lead'); return; }
+
+    closeAddLead();
+    toast('Lead added: ' + name, '✅');
+    // Show All Leads, newest first, no active filter — so the new lead is at the top.
+    currentFilter = 'all';
+    extraLeadParams = {};
+    currentSort = 'created_desc';
+    if (typeof syncFilterChips === 'function') syncFilterChips('all');
+    showView('leads');
+  } catch (e) {
+    showErr('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
 }
 
 // ─────────────────────────────────────────────

@@ -1,5 +1,9 @@
-backend/data/*.db
-backend/data/*.db-journal
+backend/data/
 backend/logs/
+.env
+oauth_credentials.json
+get_token.py
 _check.js
 _extract.py
+__pycache__/
+*.pyc

@@ -299,7 +299,7 @@ def get_db():
 
 
 def outbound_allowed(status: str) -> bool:
-    return str(status or "").lower() in {"approved", "contacted", "interested", "booked"}
+    return str(status or "").lower() in {"approved", "contacted", "responded", "interested", "booked"}
 
 
 def google_api_key() -> str:
@@ -424,6 +424,21 @@ def init_db():
             last_viewed_at TEXT,
             status        TEXT DEFAULT 'active',
             converted     INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS unmatched_replies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_email TEXT,
+            subject TEXT,
+            snippet TEXT,
+            received_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS gmail_watch_state (
+            id INTEGER PRIMARY KEY,
+            history_id TEXT,
+            expiration TEXT,
+            created_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS settings (
@@ -984,9 +999,10 @@ async def log_activity(activity: ActivityCreate):
     )
     if activity.status and activity.status.lower() == "logged":
         conn = get_db()
+        _now = datetime.now().isoformat()
         conn.execute(
-            "UPDATE leads SET status = 'contacted', updated_at = ? WHERE id = ?",
-            (datetime.now().isoformat(), activity.lead_id)
+            "UPDATE leads SET status = 'contacted', updated_at = ?, contacted_at = ? WHERE id = ?",
+            (_now, _now, activity.lead_id)
         )
         conn.commit()
         conn.close()
@@ -2239,6 +2255,57 @@ async def wa_webhook_receive(request: Request, background_tasks: BackgroundTasks
     from fastapi.responses import JSONResponse
     return JSONResponse({"status": "ok"})
 
+# ─────────────────────────────────────────────
+# GMAIL WEBHOOK (Pub/Sub push) + WATCH
+# ─────────────────────────────────────────────
+
+def _gmail_process_push(body):
+    try:
+        from gmail_service import process_gmail_push
+        process_gmail_push(body)
+    except Exception as e:
+        print(f"Gmail webhook background error: {e}")
+
+
+@app.post("/api/gmail/webhook")
+async def gmail_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Google Pub/Sub push endpoint for talktiv.ai@gmail.com inbound mail.
+    Acknowledges immediately (200) and processes the reply in the background."""
+    from fastapi.responses import JSONResponse
+    # Shared-secret auth: Pub/Sub push subscription is configured to send
+    # "Authorization: Bearer <GMAIL_WEBHOOK_SECRET>". If the secret isn't set yet,
+    # warn and allow through so unconfigured environments don't break.
+    secret = os.getenv("GMAIL_WEBHOOK_SECRET")
+    if secret:
+        if request.headers.get("authorization", "") != f"Bearer {secret}":
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+    else:
+        print("⚠️ GMAIL_WEBHOOK_SECRET not set — /api/gmail/webhook is unauthenticated")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    background_tasks.add_task(_gmail_process_push, body)
+    return JSONResponse({"status": "ok"}, status_code=200)
+
+
+@app.get("/api/gmail/watch")
+async def gmail_watch_endpoint():
+    """Register / renew the Gmail INBOX watch. Returns the expiration timestamp."""
+    try:
+        from gmail_service import gmail_watch
+        result = gmail_watch()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    if result.get("error"):
+        return {"success": False, "error": result["error"]}
+    return {
+        "success": True,
+        "history_id": result.get("history_id"),
+        "expiration": result.get("expiration"),
+    }
+
+
 @app.on_event("startup")
 async def startup():
     set_hud_loop(asyncio.get_running_loop())
@@ -2251,6 +2318,15 @@ async def startup():
         conn.commit()
         conn.close()
         print("✅ Migration: email_source column added")
+    except Exception:
+        pass  # Column already exists
+    # Migration: add responded_at column if missing (THING 3 — set when a lead replies)
+    try:
+        conn = get_db()
+        conn.execute("ALTER TABLE leads ADD COLUMN responded_at TEXT")
+        conn.commit()
+        conn.close()
+        print("✅ Migration: responded_at column added")
     except Exception:
         pass  # Column already exists
     # One-time migration: re-score legacy leads with the current scoring model

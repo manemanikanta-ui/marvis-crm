@@ -9,6 +9,7 @@ import json
 import os
 import random
 import sqlite3
+import threading
 from datetime import datetime, time as dt_time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -37,10 +38,12 @@ ALLOWED_REPLY_LABELS = [
 SKIP_SCHEDULER_STATUSES = {
     "paused",
     "replied",
+    "responded",
     "interested",
     "booked",
     "declined",
     "converted",
+    "no_response",
 }
 
 DEFAULT_SAFETY_SETTINGS = {
@@ -51,6 +54,9 @@ DEFAULT_SAFETY_SETTINGS = {
     "office_hours_only": "true",
     "pause_on_failures": "true",
 }
+
+_schema_lock = threading.Lock()
+_schema_ready = False
 
 TIMELINE_ICON_MAP = {
     "email": ("📧", "Email Sent"),
@@ -98,6 +104,14 @@ def _now_iso() -> str:
 
 
 def ensure_crm_schema():
+    global _schema_ready
+    if _schema_ready:
+        return
+
+    with _schema_lock:
+        if _schema_ready:
+            return
+
     conn = get_db()
     conn.execute(
         """
@@ -136,6 +150,10 @@ def ensure_crm_schema():
     _ensure_column(conn, "activities", "campaign_name", "TEXT DEFAULT ''")
     _ensure_column(conn, "activities", "classification", "TEXT DEFAULT ''")
 
+    # Safe additive migrations for leads — status-pipeline timestamps.
+    _ensure_column(conn, "leads", "contacted_at", "TEXT")
+    _ensure_column(conn, "leads", "responded_at", "TEXT")
+
     for key, value in DEFAULT_SAFETY_SETTINGS.items():
         conn.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -144,6 +162,7 @@ def ensure_crm_schema():
 
     conn.commit()
     conn.close()
+    _schema_ready = True
 
 
 def ensure_logs_dir() -> Path:
@@ -286,10 +305,18 @@ def update_lead_status(
         conn.close()
         return {"success": True, "lead_id": lead_id, "status": new_status, "unchanged": True}
 
-    conn.execute(
-        "UPDATE leads SET status = ?, updated_at = ? WHERE id = ?",
-        (new_status, _now_iso(), lead_id),
-    )
+    now_iso = _now_iso()
+    if new_status == "contacted":
+        # Anchor for the no_response auto-tag job (Decision 2).
+        conn.execute(
+            "UPDATE leads SET status = ?, updated_at = ?, contacted_at = ? WHERE id = ?",
+            (new_status, now_iso, now_iso, lead_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE leads SET status = ?, updated_at = ? WHERE id = ?",
+            (new_status, now_iso, lead_id),
+        )
     conn.commit()
     conn.close()
 
@@ -539,7 +566,7 @@ Return raw JSON only in this shape:
 {{"label":"one_label_here","confidence":0.0,"reason":"short reason"}}
 """
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=120,
             messages=[{"role": "user", "content": prompt}],
         )

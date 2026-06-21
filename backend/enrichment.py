@@ -15,8 +15,11 @@ import os
 import sqlite3
 import json
 import time
+import random
+import string
 import asyncio
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 from db import get_db as shared_get_db, table_columns
@@ -28,12 +31,185 @@ load_dotenv()
 DB_PATH = "data/crm.db"
 
 # Outreach generation model (per business-model spec).
+# Lightweight model for the WhatsApp message / internal tasks.
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+# The 3-email client-facing sequence goes out under Manikanta's name — quality is
+# non-negotiable, so it uses Sonnet (see THING 2 / feedback.md).
+EMAIL_MODEL = "claude-sonnet-4-6"
+
+# Words/phrases banned in ALL outreach (global hard rule). The per-category
+# `forbidden` lists in CATEGORY_PROFILES are applied on top of this.
+GLOBAL_FORBIDDEN = [
+    "revolutionise", "revolutionize", "cutting-edge", "leverage", "seamlessly",
+    "excited", "pleased", "hope this finds you well", "reach out", "touch base",
+    "synergy", "solution", "game-changer", "innovative", "best-in-class",
+    "i wanted to", "do not hesitate",
+]
 
 
-def build_outreach_prompt(lead: dict) -> str:
-    """Business-aware outreach prompt: detects what each lead is missing and
-    tailors WhatsApp + email to it. Produces JSON {whatsapp, email_subject, email_body}."""
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY TONE MAP
+# Maps a lead's category to the voice we write in. Each profile carries:
+#   tone, hook (core pain), trust_line (one credibility line), style_notes,
+#   forbidden (words/phrases that kill trust for that category), and `match`
+#   (substrings used to resolve a free-text business_type onto a profile).
+# trust_line may contain [City] / [category] placeholders, filled at lookup.
+# Any unlisted category falls back to PROFESSIONAL.
+# Insertion order matters: CALM (healthcare) is checked first; PROFESSIONAL last.
+# ─────────────────────────────────────────────────────────────────────────────
+CATEGORY_PROFILES: dict = {
+    "CALM": {
+        "tone": "calm",
+        "no_exclamation": True,
+        "hook": "patient communication after hours + reputation management",
+        "trust_line": "We built this specifically for healthcare — trust is non-negotiable in your field.",
+        "style_notes": (
+            "Measured, precise, zero hype. One clear question only. Professional peer "
+            "tone. Never pushy. Short paragraphs. Never use an exclamation mark."
+        ),
+        "forbidden": [
+            "excited", "amazing", "awesome", "revolutionary", "!",
+            "reach out", "touch base",
+        ],
+        "match": [
+            "clinic", "hospital", "dentist", "dental", "physiotherap", "physio",
+            "diagnostic", "pathology", "skin", "dermatolog", "eye care", "eye clinic",
+            "optometr", "veterinary", "psychiatr", "psycholog", "medical",
+            "healthcare", "health care", "doctor", "nursing", "ayurved",
+        ],
+    },
+    "DIRECT": {
+        "tone": "direct",
+        "hook": "missed calls after hours = jobs going to competitors",
+        "trust_line": "A [category] in [City] was missing calls a day after 7pm.",
+        "style_notes": (
+            "Blunt and brief. Pure revenue framing. No fluff. Three sentences max "
+            "in body. Prefer short words over long ones."
+        ),
+        "forbidden": [
+            "leverage", "seamlessly", "synergy", "cutting-edge", "revolutionise",
+            "innovative", "best-in-class", "solution",
+        ],
+        "match": [
+            "plumb", "electric", "ac repair", "a/c repair", "air condition", "hvac",
+            "pest control", "contractor", "carpenter", "painter", "appliance repair",
+            "cctv", "security system", "locksmith", "handyman", "renovation",
+            "borewell", "waterproof",
+        ],
+    },
+    "WARM": {
+        "tone": "warm",
+        "hook": "client retention + repeat bookings + no-shows",
+        "trust_line": "Most wellness clients see fewer no-shows in the first month.",
+        "style_notes": (
+            "Warm but concise. Aspirational without being salesy. Feels like a "
+            "recommendation from someone who gets their world."
+        ),
+        "forbidden": ["synergy", "game-changer", "solution", "excited"],
+        "match": [
+            "salon", "spa", "gym", "yoga", "wellness", "beauty", "parlour", "parlor",
+            "nail", "massage", "fitness", "pilates", "aesthetic", "barber",
+        ],
+    },
+    "GENZ": {
+        "tone": "genz",
+        "hook": "reviews going unanswered + after-hours DMs missed",
+        "trust_line": "We work with a few F&B spots in [City] already.",
+        "style_notes": (
+            "Casual, punchy, short sentences. One rhetorical question. Max 4 lines "
+            "body. No corporate language."
+        ),
+        "forbidden": [
+            "revolutionise", "seamlessly", "leverage", "cutting-edge",
+            "innovative", "pleased to",
+        ],
+        "match": [
+            "cafe", "coffee", "restaurant", "bistro", "bar", "pub", "cloud kitchen",
+            "bakery", "baker", "patisserie", "food truck", "bubble tea", "boba",
+            "dessert", "ice cream", "diner", "eatery",
+        ],
+    },
+    "COMMUNITY": {
+        "tone": "community",
+        "hook": "parent and student enquiries going unanswered + admissions",
+        "trust_line": "We built this for education providers who cannot miss a parent's first call.",
+        "style_notes": (
+            "Warm and community-minded. Parent-aware language. Respectful, never "
+            "corporate."
+        ),
+        "forbidden": ["leverage", "synergy", "roi", "pipeline", "conversion rate"],
+        "match": [
+            "school", "tutor", "coaching", "training institute", "music class",
+            "music school", "art class", "dance", "daycare", "day care", "preschool",
+            "pre-school", "kindergarten", "academy", "education", "institute",
+        ],
+    },
+    "RETAIL": {
+        "tone": "retail",
+        "hook": (
+            "WhatsApp catalogue enquiries + repeat customer communication + "
+            "festive season follow-ups"
+        ),
+        "trust_line": "Local [category] stores using this see more repeat WhatsApp orders.",
+        "style_notes": (
+            "Business-focused, competitive, margin-aware. Owner-to-owner tone."
+        ),
+        "forbidden": ["cutting-edge", "revolutionary", "game-changer"],
+        "match": [
+            "clothing", "apparel", "fashion", "boutique", "electronics", "furniture",
+            "optical", "optician", "eyewear", "jewell", "jewel", "pharmacy", "pharma",
+            "chemist", "bookstore", "book shop", "gift", "hardware", "grocery",
+            "supermarket", "mobile store",
+        ],
+    },
+    "PROFESSIONAL": {
+        "tone": "professional",
+        "hook": "lead response time + follow-up automation + pipeline",
+        "trust_line": "This is built for your specific operation, not a generic software subscription.",
+        "style_notes": "Peer-to-peer. ROI-aware. Confident without overselling.",
+        "forbidden": [
+            "hope this finds you well", "i wanted to reach out",
+            "please do not hesitate",
+        ],
+        "match": [
+            "real estate", "property", "realtor", "builder", "mortgage", "financial",
+            "wealth", "insurance", "chartered accountant", "ca firm", "accountant",
+            "lawyer", "legal", "advocate", "law firm", "architect", "interior design",
+            "consultant",
+        ],
+    },
+}
+
+
+def get_category_profile(category: str, city: str = "") -> dict:
+    """Resolve a free-text business_type onto a CATEGORY_PROFILES entry.
+
+    Returns a copy with [City]/[category] placeholders filled and the internal
+    `match` key removed. Unlisted categories fall back to PROFESSIONAL.
+    """
+    cat = (category or "").lower()
+    chosen = None
+    for profile in CATEGORY_PROFILES.values():
+        if any(keyword in cat for keyword in profile["match"]):
+            chosen = profile
+            break
+    if chosen is None:
+        chosen = CATEGORY_PROFILES["PROFESSIONAL"]
+
+    filled = {k: v for k, v in chosen.items() if k != "match"}
+    city_label = (city or "").strip() or "your area"
+    cat_label = (category or "").strip() or "business"
+    filled["trust_line"] = (
+        filled["trust_line"].replace("[City]", city_label).replace("[category]", cat_label)
+    )
+    return filled
+
+
+def build_outreach_prompt(lead: dict, proof_pack_url=None) -> str:
+    """Category-aware outreach prompt. Resolves the lead's CATEGORY_PROFILES voice,
+    applies the global + per-category hard rules, and produces a WhatsApp message
+    plus a 3-email drip (Day 0 / 3 / 7). Returns JSON {whatsapp, emails:[...]}.
+    proof_pack_url (Tier-1 hot leads) is woven into Email 1 when present."""
     name = lead.get('name', 'your business')
     contact_name = (lead.get('contact_name') or '').strip()
     # DB stores category under `business_type`; fall back to `category` for compatibility.
@@ -79,80 +255,102 @@ def build_outreach_prompt(lead: dict) -> str:
             pain = value
             break
 
-    # What we specifically offer this business
-    offerings = []
-    if needs_website:
-        offerings.append("a professional website that converts visitors into customers")
-    if high_volume:
-        offerings.append(
-            f"AI WhatsApp automation to handle the volume of enquiries "
-            f"that comes with {reviews}+ Google reviews"
+    # Category voice + lead signals
+    profile = get_category_profile(category, city)
+    score = int(lead.get('score') or 0)
+    has_phone = bool((lead.get('phone') or '').strip())
+    has_website = bool(website)
+    greeting_name = contact_name if contact_name else "there"
+    subject_example = f"{name} {city}".strip()
+
+    # One specific, real fact to anchor Email 1 (never fabricated).
+    facts = []
+    if reviews:
+        facts.append(f"{reviews} Google reviews")
+    if city:
+        facts.append(f"based in {city}")
+    if category:
+        facts.append(f"a {category}")
+    fact_hint = "; ".join(facts) if facts else "only what is listed above — invent nothing"
+
+    # Two-tier proof-pack handling for Email 1 (see THING 3).
+    if score >= 75 and proof_pack_url:
+        proof_instruction = (
+            "This is a high-priority lead. Add ONE natural line offering a ready "
+            f"preview link (bare URL, no angle brackets): {proof_pack_url}"
         )
     else:
-        offerings.append("WhatsApp AI that replies to customer messages instantly, 24/7")
+        proof_instruction = (
+            "Add ONE natural line that mentions sample assets exist WITHOUT any link, "
+            f'phrased like: "I\'ve drafted a quick Google Business write-up and email '
+            f'sequence for {name} — happy to send it over if you want a look."'
+        )
 
-    offerings.append(f"an AI system to handle {pain} automatically")
-    offering_text = offerings[0] + " and " + offerings[1]
+    no_excl_rule = (
+        "\n- This category is healthcare: NEVER use an exclamation mark anywhere."
+        if profile.get("no_exclamation") else ""
+    )
+    cat_forbidden = ", ".join(profile.get("forbidden", [])) or "none"
+    global_forbidden = ", ".join(GLOBAL_FORBIDDEN)
 
-    website_note = ""
-    if has_no_website:
-        website_note = "They have NO website — specifically mention we can build them one."
-    elif is_social_only:
-        website_note = (f"Their only web presence is social media ({website}) — "
-                       f"mention we can build a proper business website.")
+    return f"""You are Manikanta Mane, founder of Talktiv AI, writing to a business owner.
+The messages are FROM you TO them. Never address Manikanta. Never invent facts.
 
-    greeting_name = contact_name if contact_name else "there"
-    city_line = city if city else "Unknown"
-    city_phrase = f" in {city}" if city else ""
-
-    return f"""You are writing personalised cold outreach for Manikanta Mane,
-founder of Talktiv AI. The messages are FROM Manikanta TO the business owner below.
-Never address Manikanta, and never use Manikanta's own location as the lead's city.
-
-Business details:
+LEAD
 Business name: {name}
 Contact person: {greeting_name}
-Category: {category}
-City: {city_line}
-Google Reviews: {reviews}
-Website status: {'No website' if has_no_website else ('Social only: ' + website if is_social_only else 'Has website')}
+Category: {category or 'unknown'}
+City: {city or 'unknown'}
+Google reviews: {reviews}
+Has a phone on file: {has_phone}
+Has a website: {has_website}
+Their likely pain: {pain}
+Lead score: {score}
 
-{website_note}
+VOICE FOR THIS CATEGORY (tone: {profile['tone']})
+Core pain to lean on: {profile['hook']}
+Credibility line you may adapt: {profile['trust_line']}
+Style: {profile['style_notes']}
+Category-forbidden words (never use): {cat_forbidden}{no_excl_rule}
 
-Their main pain point: {pain}
+HARD RULES (every email)
+- Plain text only. No HTML, no bullet points, no bold, no markdown.
+- Email body is 5 lines maximum.
+- Include exactly ONE specific, real fact about the lead, woven in naturally
+  (choose from: {fact_hint}). Never state a fact not given above.
+- Mention the website exactly once, mid-email, as a low-key verification offer:
+  the bare word talktivai.com (no angle brackets, not a CTA, not in the signature).
+  Only Email 1 carries this mid-email mention; Emails 2 and 3 do not.
+- End every email with this signature — exactly these three lines, nothing else:
+  — Manikanta
+  Talktiv AI
+  talktivai.com
+- Subject lines must read like a human typed them quickly — e.g. "{subject_example}",
+  "Re: {name}", or a short plain observation. Never a marketing headline; lowercase is fine.
+- Never use any of these words/phrases anywhere: {global_forbidden}
 
-What we can specifically offer them: {offering_text}
+THREE EMAILS
 
-Write three pieces of outreach:
+EMAIL 1 — Day 0 (cold outreach), tone = {profile['tone']}:
+- One specific observation about their business using the real fact.
+- One genuine yes/no question about their current process (not rhetorical).
+- The single mid-email talktivai.com verification mention.
+- No ask, no CTA button, no link other than talktivai.com.
+- {proof_instruction}
 
-1. WhatsApp message (max 100 words):
-- Start with "Hi {greeting_name},"
-- Then reference their business naturally, e.g. "noticed {name}{city_phrase}..."
-- Mention ONE specific thing we can do for them based on what they're missing
-- End with a single question that invites a reply
-- Warm and personal, as Manikanta personally — sign off as "Manikanta, Talktiv AI"
-- Natural tone — not salesy, not corporate
-- If they have 500+ reviews, acknowledge their established reputation
+EMAIL 2 — Day 3 (no-reply follow-up):
+- Very short: at most 2 short body lines, then the signature.
+- Reference the Day 0 email naturally, never passive-aggressive.
+- A different angle on the same pain.
+- End with a simple yes/no question. No website link.
 
-2. Email subject line (max 55 characters)
-
-3. Email body (max 160 words):
-- Open with "Hi {greeting_name},"
-- Same personal tone as WhatsApp
-- Reference their specific pain point: {pain}
-- Mention what we can build for them specifically
-- One clear CTA at the end
-
-STRICT RULES:
-- Never say "Talktiv AI talkbots" or "voice bots" or "AI agents" generically
-- Never use phrases like "I hope this finds you well" or "I wanted to reach out"
-- Never make claims we can't deliver (no "guaranteed results" or "100% success")
-- Always reference the business name {name} naturally (mention the city only if provided above)
-- If website is missing or social-only, always mention website building
-- Write like a real person reaching out, not a global SaaS company
+EMAIL 3 — Day 7 (closing):
+- At most 2 body lines, then the signature.
+- Frame it as "Closing my notes on {name}".
+- Leave the door open with zero desperation. No website link, no pitch, no ask.
 
 Return ONLY valid JSON, no markdown:
-{{"whatsapp": "...", "email_subject": "...", "email_body": "..."}}"""
+{{"whatsapp": "<max 90 words, starts 'Hi {greeting_name},', references {name}, one yes/no question, signs off 'Manikanta, Talktiv AI'>", "emails": [{{"day": 0, "subject": "...", "body": "..."}}, {{"day": 3, "subject": "...", "body": "..."}}, {{"day": 7, "subject": "...", "body": "..."}}]}}"""
 
 
 def get_db():
@@ -190,9 +388,8 @@ def validate_enrichment_output(result: dict, lead: dict) -> tuple[bool, str]:
     bad_phrases = [
         'guaranteed results', 'proven roi', 'hundreds of clients',
         'award winning', 'number one', '#1 in', 'best in india',
-        'i hope this finds you', 'i wanted to reach out',
-        'talkbot', 'voice bot'
-    ]
+        'talkbot', 'voice bot',
+    ] + GLOBAL_FORBIDDEN
     for phrase in bad_phrases:
         if phrase in combined:
             return False, f"Hallucination detected: '{phrase}'"
@@ -204,16 +401,16 @@ def validate_enrichment_output(result: dict, lead: dict) -> tuple[bool, str]:
     return True, "OK"
 
 
-def _generate_outreach(client, lead: dict) -> dict:
+def _generate_outreach(client, lead: dict, proof_pack_url=None) -> dict:
     """
-    Single Claude call producing the business-aware outreach.
-    Returns the raw parsed JSON {whatsapp, email_subject, email_body} — {} on failure.
+    Single Sonnet call producing the category-aware outreach.
+    Returns the raw parsed JSON {whatsapp, emails:[{day,subject,body}, ...]} — {} on failure.
     """
-    prompt = build_outreach_prompt(lead)
+    prompt = build_outreach_prompt(lead, proof_pack_url)
 
     resp = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=1000,
+        model=EMAIL_MODEL,
+        max_tokens=2000,
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -229,13 +426,12 @@ def _generate_outreach(client, lead: dict) -> dict:
         return {}
 
 
-def generate_for_lead(lead: dict) -> dict:
+def generate_for_lead(lead: dict, proof_pack_url=None) -> dict:
     """
-    Generate WhatsApp + email outreach for a single lead using Claude.
+    Generate WhatsApp + a 3-email drip (Day 0/3/7) for a single lead using Sonnet.
     Returns dict with keys:
       whatsapp, whatsapp_message, email_subject, email_body, day0, day3, day7
-    ('whatsapp' mirrors 'whatsapp_message' for validate_enrichment_output;
-     day0 mirrors the email for backward compatibility with the stored sequence.)
+    email_subject/email_body mirror Day 0 (for the lead detail panel + validation).
     """
     import anthropic
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
@@ -247,23 +443,193 @@ def generate_for_lead(lead: dict) -> dict:
     }
 
     try:
-        raw = _generate_outreach(client, lead)
+        raw = _generate_outreach(client, lead, proof_pack_url)
     except Exception as e:
         print(f"  Outreach generation error for {lead.get('name','')}: {e}")
         return result
 
-    wa      = str(raw.get("whatsapp", "")).strip()
-    subject = str(raw.get("email_subject", "")).strip()
-    body    = str(raw.get("email_body", "")).strip()
+    wa = str(raw.get("whatsapp", "")).strip()
 
+    by_day = {}
+    for em in (raw.get("emails") or []):
+        if not isinstance(em, dict):
+            continue
+        try:
+            day = int(em.get("day"))
+        except (TypeError, ValueError):
+            continue
+        by_day[day] = {
+            "subject": str(em.get("subject", "")).strip(),
+            "body": str(em.get("body", "")).strip(),
+        }
+
+    day0 = by_day.get(0, {})
     result["whatsapp"]         = wa
     result["whatsapp_message"] = wa
-    result["email_subject"]    = subject
-    result["email_body"]       = body
-    if subject or body:
-        result["day0"] = {"subject": subject, "body": body}
+    result["email_subject"]    = day0.get("subject", "")
+    result["email_body"]       = day0.get("body", "")
+    result["day0"]             = day0
+    result["day3"]             = by_day.get(3, {})
+    result["day7"]             = by_day.get(7, {})
 
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TWO-TIER PROOF PACK (THING 3)
+#   Tier 1 — hot leads (score >= 75): pack auto-generated during enrichment,
+#            portal link woven into Email 1.
+#   Tier 2 — warm leads (score < 75): pack deferred until the lead replies
+#            (status -> "responded"), then generated + a standalone email sent.
+# ─────────────────────────────────────────────────────────────────────────────
+
+HOT_LEAD_SCORE = 75
+SIGNATURE = "— Manikanta\nTalktiv AI\ntalktivai.com"
+
+
+def _public_base_url() -> str:
+    """Absolute base URL for proof-portal links (no request context in enrichment)."""
+    return (os.getenv("PUBLIC_BASE_URL") or "https://marvis-crm-production.up.railway.app").rstrip("/")
+
+
+def _run_async(coro):
+    """Run an async coroutine to completion from sync code, safe whether or not an
+    event loop is already running (enrich-now runs inside the FastAPI loop)."""
+    box = {}
+
+    def runner():
+        box["value"] = asyncio.run(coro)
+
+    t = threading.Thread(target=runner)
+    t.start()
+    t.join()
+    return box.get("value")
+
+
+def _generate_proof_code() -> str:
+    """Unique 6-char alphanumeric proof code (mirrors main.generate_proof_code)."""
+    while True:
+        code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        conn = get_db()
+        exists = conn.execute("SELECT id FROM proof_packs WHERE code = ?", (code,)).fetchone()
+        conn.close()
+        if not exists:
+            return code
+
+
+def lead_has_proof_pack(lead_id: int) -> bool:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id FROM proof_packs WHERE lead_id = ? LIMIT 1", (lead_id,)
+    ).fetchone()
+    conn.close()
+    return bool(row)
+
+
+def get_lead_proof_url(lead_id: int):
+    """Return the portal URL for a lead's most recent proof pack, or None."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT code FROM proof_packs WHERE lead_id = ? ORDER BY id DESC LIMIT 1",
+        (lead_id,),
+    ).fetchone()
+    conn.close()
+    if row:
+        return f"{_public_base_url()}/proof/{row['code']}"
+    return None
+
+
+def create_proof_pack_for_lead(lead: dict):
+    """Generate a proof pack for a lead, store it in proof_packs, and return the
+    public portal URL. Returns None on any failure (never raises to the caller)."""
+    name = (lead.get("name") or "").strip()
+    if not name:
+        return None
+    business = {
+        "name": name,
+        "category": (lead.get("business_type") or lead.get("category") or ""),
+        "city": (lead.get("city") or lead.get("address") or ""),
+        "phone": lead.get("phone", "") or "",
+        "website": lead.get("website", "") or "",
+    }
+    try:
+        assets = _run_async(generate_proof_assets(business))
+    except Exception as e:
+        print(f"  proof pack generation error for {name[:40]}: {e}")
+        return None
+    if not assets or "error" in assets:
+        print(f"  proof pack assets error for {name[:40]}: {assets.get('error') if assets else 'no assets'}")
+        return None
+
+    code = _generate_proof_code()
+    expires_at = (datetime.utcnow() + timedelta(days=7)).isoformat()
+    try:
+        conn = get_db()
+        conn.execute(
+            """
+            INSERT INTO proof_packs
+                (code, lead_id, business_name, category, city, phone, website,
+                 assets_json, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                code, lead.get("id"), business["name"], business["category"],
+                business["city"], business["phone"], business["website"],
+                json.dumps(assets, ensure_ascii=False), expires_at,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"  proof pack store error for {name[:40]}: {e}")
+        return None
+    return f"{_public_base_url()}/proof/{code}"
+
+
+def handle_warm_lead_responded(lead_id: int) -> dict:
+    """Tier-2 trigger: a warm lead replied. If no proof pack exists yet, generate
+    one and send the standalone 'the assets I mentioned' email. Idempotent."""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
+    conn.close()
+    if not row:
+        return {"success": False, "error": "Lead not found"}
+    lead = dict(row)
+
+    if lead_has_proof_pack(lead_id):
+        return {"success": True, "skipped": True, "reason": "proof pack already exists"}
+
+    portal = create_proof_pack_for_lead(lead)
+    if not portal:
+        return {"success": False, "error": "Proof pack generation failed"}
+
+    email = (lead.get("email") or "").strip()
+    if not email:
+        return {"success": True, "proof_url": portal, "emailed": False, "reason": "no email on lead"}
+
+    name = lead.get("name", "")
+    subject = f"{name} — the assets I mentioned"
+    body = (
+        f"Here are those sample assets I mentioned for {name} — {portal}\n\n"
+        "Let me know what you think of the tone.\n\n"
+        f"{SIGNATURE}"
+    )
+    try:
+        from email_engine import send_email_now
+        send_email_now(
+            email, subject, body, lead_id, "proof_followup",
+            metadata={"source": "warm_responded", "proof_url": portal},
+        )
+    except Exception as e:
+        return {"success": True, "proof_url": portal, "emailed": False, "error": str(e)}
+
+    log_activity_event(
+        lead_id, "proof_followup", "email",
+        f"Sent proof assets after reply: {portal}",
+        status="sent", direction="outbound",
+        metadata={"source": "warm_responded", "proof_url": portal},
+    )
+    return {"success": True, "proof_url": portal, "emailed": True}
 
 
 def enrich_lead_in_db(lead_id: int) -> dict:
@@ -283,11 +649,20 @@ def enrich_lead_in_db(lead_id: int) -> dict:
 
     print(f"  ✨ Enriching: {lead['name'][:40]}")
 
+    # Tier 1 — hot leads get a proof pack now, and its portal link goes into Email 1.
+    # Warm leads (score < 75) get proof packs later, on reply (handle_warm_lead_responded).
+    proof_pack_url = None
+    if int(lead.get("score") or 0) >= HOT_LEAD_SCORE:
+        try:
+            proof_pack_url = get_lead_proof_url(lead["id"]) or create_proof_pack_for_lead(lead)
+        except Exception as e:
+            print(f"  proof pack (tier 1) skipped for {lead['name'][:40]}: {e}")
+
     # Generate with validation + one retry — never save invalid output.
     result = None
     candidate = None
     for attempt in range(2):
-        candidate = generate_for_lead(lead)
+        candidate = generate_for_lead(lead, proof_pack_url)
         is_valid, reason = validate_enrichment_output(candidate, lead)
         if is_valid:
             result = candidate

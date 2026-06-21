@@ -933,9 +933,11 @@ body {
           <button class="filter-chip active" onclick="filterLeads('all', this)">All</button>
           <button class="filter-chip" onclick="filterLeads('new', this)">New</button>
           <button class="filter-chip" onclick="filterLeads('contacted', this)">Contacted</button>
+          <button class="filter-chip" onclick="filterLeads('responded', this)">Responded</button>
           <button class="filter-chip" onclick="filterLeads('interested', this)">Interested</button>
           <button class="filter-chip" onclick="filterLeads('converted', this)">Converted</button>
           <button class="filter-chip" onclick="filterLeads('declined', this)">Declined</button>
+          <button class="filter-chip" onclick="filterLeads('no_response', this)">No Response</button>
         </div>
         <div id="leads-category-bar" style="display:flex;gap:8px;overflow-x:auto;padding:10px 20px;border-bottom:1px solid var(--border);white-space:nowrap;"></div>
         <div class="table-header">
@@ -1625,10 +1627,12 @@ body {
           <option value="approved">Approved</option>
           <option value="paused">Paused</option>
           <option value="contacted">Contacted</option>
+          <option value="responded">Responded</option>
           <option value="interested">Interested</option>
           <option value="booked">Booked</option>
           <option value="converted">Converted</option>
           <option value="declined">Declined</option>
+          <option value="no_response">No Response</option>
           <option value="pricing">Pricing</option>
           <option value="callback">Callback</option>
           <option value="followup_later">Follow-up Later</option>
@@ -2244,7 +2248,7 @@ function filterLeads(status, el) {
 
 // Keep the status filter-chip row in sync when a stat card sets the filter.
 function syncFilterChips(status) {
-  const labels = { all:'All', new:'New', contacted:'Contacted', interested:'Interested', converted:'Converted', declined:'Declined' };
+  const labels = { all:'All', new:'New', contacted:'Contacted', responded:'Responded', interested:'Interested', converted:'Converted', declined:'Declined', no_response:'No Response' };
   const want = labels[status];
   document.querySelectorAll('.filter-chip').forEach(c => {
     c.classList.toggle('active', !!want && c.textContent.trim() === want);
@@ -2399,17 +2403,19 @@ function searchLeads(q) {
 async function loadPipeline() {
   const res = await fetch(`${API}/leads?limit=200`).then(r => r.json());
   const leads = res.leads;
-  const statuses = ['new', 'pending_review', 'approved', 'paused', 'contacted', 'interested', 'booked', 'converted', 'declined'];
+  const statuses = ['new', 'pending_review', 'approved', 'paused', 'contacted', 'responded', 'interested', 'booked', 'converted', 'declined', 'no_response'];
   const labels = {
     new: '🆕 New',
     pending_review: '⏳ Review',
     approved: '✅ Approved',
     paused: '⏸ Paused',
     contacted: '📨 Contacted',
+    responded: '💬 Responded',
     interested: '💡 Interested',
     booked: '📅 Booked',
     converted: '🏁 Converted',
-    declined: '❌ Declined'
+    declined: '❌ Declined',
+    no_response: '🔇 No Response'
   };
   const colors = {
     new: 'var(--accent2)',
@@ -2417,16 +2423,22 @@ async function loadPipeline() {
     approved: 'var(--green)',
     paused: '#94a3b8',
     contacted: 'var(--yellow)',
+    responded: '#7189f6',
     interested: 'var(--green)',
     booked: '#2dd4bf',
     converted: 'var(--green)',
-    declined: 'var(--red)'
+    declined: 'var(--red)',
+    no_response: 'rgba(255,255,255,0.45)'
+  };
+  const borderColors = {
+    responded: 'rgba(113,137,246,0.6)',
+    no_response: 'rgba(255,255,255,0.15)'
   };
 
   document.getElementById('pipeline-board').innerHTML = statuses.map(s => {
     const cols = leads.filter(l => l.status === s);
     return `
-      <div class="pipeline-col">
+      <div class="pipeline-col" style="border-top:2px solid ${borderColors[s] || 'transparent'}">
         <div class="pipeline-col-header" style="color:${colors[s]}">
           <span>${labels[s]}</span>
           <span>${cols.length}</span>

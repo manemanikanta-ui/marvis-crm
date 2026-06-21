@@ -589,7 +589,7 @@ def _process_due_followups() -> Dict[str, Any]:
         status = "sent"
         response = ""
 
-        if lead_status in {"new", "pending_review", "paused", "replied", "interested", "booked", "declined", "converted"}:
+        if lead_status in {"new", "pending_review", "paused", "replied", "responded", "interested", "booked", "declined", "converted", "no_response"}:
             skipped += 1
             status = "skipped"
             response = f"lead_status_{lead_status or 'unknown'}"
@@ -858,6 +858,68 @@ def run_daily_job(trigger_type: str = "scheduled", jobs: Optional[List[Dict[str,
         _job_running.clear()
 
 
+def _maybe_renew_gmail_watch(now: datetime):
+    """Renew the Gmail INBOX watch every ~6 days at 8am IST (Gmail watch expires
+    after 7 days). Calls gmail_service.gmail_watch() and records the renewal time."""
+    try:
+        if now.hour != 8:
+            return
+        settings = _settings_dict()
+        last = settings.get("gmail_watch_last_renew", "")
+        if last:
+            try:
+                if (now - datetime.fromisoformat(last)) < timedelta(days=6):
+                    return
+            except Exception:
+                pass
+        from gmail_service import gmail_watch
+        result = gmail_watch()
+        _set_setting("gmail_watch_last_renew", now.isoformat())
+        _logger.info("Gmail watch renewed: %s", result)
+    except Exception as exc:
+        _logger.error("Gmail watch renew error: %s", exc)
+
+
+def _tag_no_response_leads() -> int:
+    """Tag 'contacted' leads that never replied within 7 days as 'no_response'.
+    Uses contacted_at (set on status->contacted); leads without it are skipped."""
+    cutoff = (_now_ist() - timedelta(days=7)).isoformat()
+    now_iso = _now_ist().isoformat()
+    conn = get_db()
+    result = conn.execute(
+        """
+        UPDATE leads
+           SET status = 'no_response', updated_at = ?
+         WHERE status = 'contacted'
+           AND contacted_at IS NOT NULL
+           AND contacted_at != ''
+           AND contacted_at < ?
+           AND (responded_at IS NULL OR responded_at = '')
+        """,
+        (now_iso, cutoff),
+    )
+    count = result.rowcount if result.rowcount is not None and result.rowcount >= 0 else 0
+    conn.commit()
+    conn.close()
+    return count
+
+
+def _maybe_tag_no_response(now: datetime):
+    """Daily at 10am IST: auto-tag stale 'contacted' leads as 'no_response'."""
+    try:
+        if now.hour != 10:
+            return
+        today = now.date().isoformat()
+        settings = _settings_dict()
+        if settings.get("no_response_last_run_date", "") == today:
+            return
+        count = _tag_no_response_leads()
+        _set_setting("no_response_last_run_date", today)
+        _logger.info("Auto-tagged %s leads as no_response", count)
+    except Exception as exc:
+        _logger.error("no_response tagging error: %s", exc)
+
+
 def _scheduler_loop():
     ensure_schema()
     while not _scheduler_stop.is_set():
@@ -902,6 +964,9 @@ def _scheduler_loop():
 
             if due_jobs and not _job_running.is_set():
                 run_daily_job("scheduled", due_jobs)
+
+            _maybe_renew_gmail_watch(now)
+            _maybe_tag_no_response(now)
 
             time.sleep(60)
         except Exception as exc:

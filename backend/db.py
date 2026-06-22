@@ -263,6 +263,14 @@ def table_columns(conn: Optional[DBConnection], table: str) -> List[str]:
 
         rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
         return [row[1] for row in rows]
+    except Exception:
+        # Table may not exist yet (fresh DB) or the connection's transaction may
+        # be aborted — treat as "no columns" so callers can create/migrate safely.
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return []
     finally:
         if created:
             conn.close()

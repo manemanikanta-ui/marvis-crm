@@ -492,14 +492,29 @@ def init_db():
         INSERT OR IGNORE INTO settings VALUES ('office_hours_only', 'true');
         INSERT OR IGNORE INTO settings VALUES ('pause_on_failures', 'true');
     """)
-    # Additive migrations for existing DBs (CREATE IF NOT EXISTS won't add new columns).
-    for _col in ("contact_name", "city"):
-        try:
-            conn.execute(f"ALTER TABLE leads ADD COLUMN {_col} TEXT DEFAULT ''")
-        except Exception:
-            pass
+    # Commit the table creation BEFORE any ALTER runs. On PostgreSQL a redundant
+    # ALTER (column already present from the CREATE above) aborts the transaction;
+    # committing first guarantees the schema persists regardless.
     conn.commit()
     conn.close()
+
+    # Additive migrations for existing DBs (CREATE IF NOT EXISTS won't add new
+    # columns). Each runs on its own connection and is skipped when the column
+    # already exists, so it can never abort/roll back the schema transaction.
+    from db import table_columns
+    for _col in ("contact_name", "city"):
+        mconn = get_db()
+        try:
+            if _col not in table_columns(mconn, "leads"):
+                mconn.execute(f"ALTER TABLE leads ADD COLUMN {_col} TEXT DEFAULT ''")
+                mconn.commit()
+        except Exception:
+            try:
+                mconn.rollback()
+            except Exception:
+                pass
+        finally:
+            mconn.close()
 
 
 def generate_proof_code() -> str:

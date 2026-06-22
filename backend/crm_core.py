@@ -112,57 +112,73 @@ def ensure_crm_schema():
         if _schema_ready:
             return
 
-    conn = get_db()
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS lead_status_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lead_id INTEGER NOT NULL,
-            old_status TEXT,
-            new_status TEXT NOT NULL,
-            source TEXT DEFAULT 'system',
-            note TEXT,
-            metadata_json TEXT DEFAULT '{}',
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (lead_id) REFERENCES leads(id)
-        )
-        """
-    )
+        conn = get_db()
 
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS system_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_type TEXT NOT NULL,
-            channel TEXT DEFAULT 'system',
-            content TEXT,
-            status TEXT DEFAULT 'logged',
-            direction TEXT DEFAULT 'system',
-            metadata_json TEXT DEFAULT '{}',
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-        """
-    )
+        def _step(fn):
+            # Run one DDL/migration statement in isolation: commit on success,
+            # roll back on failure so a single error can't poison the connection
+            # (critical on PostgreSQL, where an aborted txn blocks all later SQL).
+            try:
+                fn()
+                conn.commit()
+            except Exception as exc:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                print(f"  ensure_crm_schema: step skipped ({exc})")
 
-    # Safe additive migrations for activities.
-    _ensure_column(conn, "activities", "direction", "TEXT DEFAULT 'outbound'")
-    _ensure_column(conn, "activities", "metadata_json", "TEXT DEFAULT '{}'")
-    _ensure_column(conn, "activities", "campaign_name", "TEXT DEFAULT ''")
-    _ensure_column(conn, "activities", "classification", "TEXT DEFAULT ''")
+        # 1. CREATE TABLEs first — they must exist before any ALTER/SELECT runs.
+        _step(lambda: conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lead_status_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lead_id INTEGER NOT NULL,
+                old_status TEXT,
+                new_status TEXT NOT NULL,
+                source TEXT DEFAULT 'system',
+                note TEXT,
+                metadata_json TEXT DEFAULT '{}',
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (lead_id) REFERENCES leads(id)
+            )
+            """
+        ))
 
-    # Safe additive migrations for leads — status-pipeline timestamps.
-    _ensure_column(conn, "leads", "contacted_at", "TEXT")
-    _ensure_column(conn, "leads", "responded_at", "TEXT")
+        _step(lambda: conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS system_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                channel TEXT DEFAULT 'system',
+                content TEXT,
+                status TEXT DEFAULT 'logged',
+                direction TEXT DEFAULT 'system',
+                metadata_json TEXT DEFAULT '{}',
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        ))
 
-    for key, value in DEFAULT_SAFETY_SETTINGS.items():
-        conn.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            (key, value),
-        )
+        # 2. Additive ALTERs — each isolated so one failure doesn't block the rest.
+        _step(lambda: _ensure_column(conn, "activities", "direction", "TEXT DEFAULT 'outbound'"))
+        _step(lambda: _ensure_column(conn, "activities", "metadata_json", "TEXT DEFAULT '{}'"))
+        _step(lambda: _ensure_column(conn, "activities", "campaign_name", "TEXT DEFAULT ''"))
+        _step(lambda: _ensure_column(conn, "activities", "classification", "TEXT DEFAULT ''"))
 
-    conn.commit()
-    conn.close()
-    _schema_ready = True
+        # Status-pipeline timestamps on leads.
+        _step(lambda: _ensure_column(conn, "leads", "contacted_at", "TEXT"))
+        _step(lambda: _ensure_column(conn, "leads", "responded_at", "TEXT"))
+
+        # 3. Default safety settings.
+        for key, value in DEFAULT_SAFETY_SETTINGS.items():
+            _step(lambda k=key, v=value: conn.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                (k, v),
+            ))
+
+        conn.close()
+        _schema_ready = True
 
 
 def ensure_logs_dir() -> Path:

@@ -225,7 +225,7 @@ class DBConnection:
 def get_db() -> DBConnection:
     if USE_POSTGRES:
         url = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
-        conn = psycopg2.connect(url, cursor_factory=psycopg2.extras.Cursor)
+        conn = psycopg2.connect(url)
         conn.autocommit = False
         return DBConnection(conn)
 

@@ -80,9 +80,19 @@ def _upsert_watch_state(history_id: str, expiration: str = None):
     conn.close()
 
 
-def _extract_email(from_header: str) -> str:
-    match = _EMAIL_RE.search(from_header or "")
-    return match.group(0).lower() if match else ""
+def _extract_email(message):
+    """Pull the plain sender address out of the Gmail message's From header,
+    handling both "Display Name <email@domain.com>" and bare "email@domain.com"."""
+    headers = message.get('payload', {}).get('headers', [])
+    for h in headers:
+        if h.get('name', '').lower() == 'from':
+            value = h.get('value', '')
+            # Extract email from "Name <email>" or plain "email"
+            match = re.search(r'<([^>]+)>', value)
+            if match:
+                return match.group(1).strip().lower()
+            return value.strip().lower()
+    return None
 
 
 # ── push processing ─────────────────────────────────────────────────────────
@@ -154,7 +164,8 @@ def _process_message(service, message_id: str):
         (h.get("name") or "").lower(): h.get("value", "")
         for h in (msg.get("payload", {}) or {}).get("headers", [])
     }
-    sender_email = _extract_email(headers.get("from", ""))
+    sender_email = _extract_email(msg)
+    print(f"📧 Extracted sender email: {sender_email}")
     subject = headers.get("subject", "")
     snippet = (msg.get("snippet", "") or "")[:200]
     if not sender_email:
@@ -166,7 +177,7 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
     now = datetime.now().isoformat()
     conn = get_db()
     lead = conn.execute(
-        "SELECT id, status, score FROM leads WHERE email = ? LIMIT 1", (sender_email,)
+        "SELECT id, status, score FROM leads WHERE LOWER(email) = LOWER(?) LIMIT 1", (sender_email,)
     ).fetchone()
     conn.close()
 

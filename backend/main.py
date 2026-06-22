@@ -71,7 +71,21 @@ import pathlib
 @app.get("/")
 @app.get("/dashboard")
 async def dashboard():
-    return FileResponse(pathlib.Path(__file__).parent.parent / "frontend" / "index.html")
+    # Railway deploys from the repo root (root dir ""), so frontend/ sits at
+    # ../frontend relative to backend/main.py (i.e. /app/frontend). Check the
+    # known locations and serve whichever exists.
+    candidates = [
+        "/app/frontend/index.html",
+        os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html"),
+        os.path.join(os.path.dirname(__file__), "frontend", "index.html"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return FileResponse(path)
+    return JSONResponse(
+        {"error": "Frontend index.html not found", "checked": candidates},
+        status_code=404,
+    )
 
 
 # ─────────────────────────────────────────────

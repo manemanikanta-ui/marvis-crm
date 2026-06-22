@@ -136,7 +136,7 @@ def _translate_settings_upsert(sql: str) -> str:
 def _translate_schema(sql: str) -> str:
     if not USE_POSTGRES:
         return sql
-    sql = sql.replace("AUTOINCREMENT", "SERIAL PRIMARY KEY")
+    sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
     sql = sql.replace("datetime('now')", "NOW()")
     sql = sql.replace("(datetime('now'))", "NOW()")
     sql = sql.replace(" DEFAULT (datetime('now'))", " DEFAULT NOW()")

@@ -813,6 +813,20 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
     _set_setting("scheduler_next_run", next_run)
     _record_run(started_at, finished_at, status, overall, details, trigger_type)
     _write_run_log({"status": status, "summary": overall, "details": details})
+
+    # Telegram summary once the run is fully logged.
+    try:
+        from telegram_notify import notify
+        notify(
+            f"📅 <b>Scheduler Complete</b>\n"
+            f"Status: {status}\n"
+            f"Leads found: {overall.get('new_leads', 0)}\n"
+            f"Emails sent: {overall.get('emails_sent', 0)}\n"
+            f"Failed: {overall.get('emails_failed', 0)}"
+        )
+    except Exception:
+        pass
+
     if status == "success":
         emit_hud_event("scheduler_complete", {"jobs": len(jobs), "leads_found": overall.get("new_leads", 0)})
     elif status in {"failed", "partial_failure"}:

@@ -177,7 +177,7 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
     now = datetime.now().isoformat()
     conn = get_db()
     lead = conn.execute(
-        "SELECT id, status, score FROM leads WHERE LOWER(email) = LOWER(?) LIMIT 1", (sender_email,)
+        "SELECT id, status, score, name FROM leads WHERE LOWER(email) = LOWER(?) LIMIT 1", (sender_email,)
     ).fetchone()
     conn.close()
 
@@ -216,6 +216,17 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
         conn.commit()
         conn.close()
         print(f"  💬 Lead {lead_id} → responded")
+
+        # Telegram alert for a matched email reply.
+        try:
+            from telegram_notify import notify
+            notify(
+                f"📧 <b>Email Reply</b>\n"
+                f"{lead.get('name') or sender_email} → responded\n"
+                f"{snippet[:100]}"
+            )
+        except Exception:
+            pass
 
     # Tier-2: warm lead with no proof pack yet → generate + send the assets email.
     try:

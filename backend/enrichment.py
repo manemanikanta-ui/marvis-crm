@@ -753,6 +753,19 @@ def enrich_lead_in_db(lead_id: int) -> dict:
         metadata={"generated": True, "email_validated": email_valid},
     )
 
+    # Telegram alert for hot leads only (score >= HOT_LEAD_SCORE).
+    if int(lead.get("score") or 0) >= HOT_LEAD_SCORE:
+        try:
+            from telegram_notify import notify
+            notify(
+                f"🔥 <b>Hot Lead Enriched</b>\n"
+                f"{lead.get('name', '')} — {lead.get('city', '')}\n"
+                f"Score: {lead.get('score')}\n"
+                f"Category: {lead.get('business_type', '')}"
+            )
+        except Exception:
+            pass
+
     return {
         "success": True,
         "lead_id": lead_id,

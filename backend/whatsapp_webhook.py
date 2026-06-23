@@ -110,6 +110,17 @@ def log_inbound(lead_id: int, phone: str, message: str, wa_msg_id: str = ""):
     )
     emit_hud_event("new_reply", {"from": phone, "message": message[:200], "lead_id": lead_id})
 
+    # Telegram alert for inbound WhatsApp reply.
+    try:
+        from telegram_notify import notify
+        notify(
+            f"💬 <b>WhatsApp Reply</b>\n"
+            f"{lead_dict.get('name', phone)}\n"
+            f"Message: {message[:100]}"
+        )
+    except Exception:
+        pass
+
 def send_wa_reply(phone: str, message: str, settings: dict) -> dict:
     """Send WhatsApp reply"""
     phone_id = settings.get('wa_phone_id', os.getenv('WHATSAPP_PHONE_ID', ''))

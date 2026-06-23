@@ -63,6 +63,9 @@ TIMELINE_ICON_MAP = {
     "whatsapp": ("📱", "WhatsApp Sent"),
     "reply": ("📩", "Reply Received"),
     "inbound": ("📩", "Reply Received"),
+    "email_reply": ("📧", "Email Reply"),
+    "wa_reply": ("💬", "WhatsApp Reply"),
+    "whatsapp_reply": ("💬", "WhatsApp Reply"),
     "ai_reply": ("🤖", "AI Reply"),
     "followup_scheduled": ("📅", "Follow-up Scheduled"),
     "followup_sent": ("📬", "Follow-up Sent"),
@@ -451,7 +454,7 @@ def get_lead_timeline(lead_id: int) -> Dict[str, Any]:
             meta = {}
         row["metadata"] = meta
         if not row.get("direction"):
-            row["direction"] = "inbound" if row.get("type") in {"reply", "inbound"} else "outbound"
+            row["direction"] = "inbound" if row.get("type") in {"reply", "inbound", "email_reply", "wa_reply", "whatsapp_reply"} else "outbound"
         timeline.append(format_timeline_item(row))
 
     for row in followups:
@@ -651,7 +654,7 @@ def get_campaign_stats() -> Dict[str, Any]:
         """
         SELECT COUNT(*)
         FROM activities
-        WHERE type IN ('reply', 'inbound')
+        WHERE type IN ('reply', 'inbound', 'email_reply', 'wa_reply', 'whatsapp_reply')
           AND date(created_at) = date('now')
         """
     ).fetchone()[0]
@@ -682,7 +685,7 @@ def get_campaign_stats() -> Dict[str, Any]:
                 COUNT(*) AS total,
                 SUM(CASE WHEN channel = 'email' AND status = 'sent' THEN 1 ELSE 0 END) AS emails_sent,
                 SUM(CASE WHEN channel = 'whatsapp' AND status = 'sent' THEN 1 ELSE 0 END) AS whatsapp_sent,
-                SUM(CASE WHEN type IN ('reply', 'inbound') THEN 1 ELSE 0 END) AS replies
+                SUM(CASE WHEN type IN ('reply', 'inbound', 'email_reply', 'wa_reply', 'whatsapp_reply') THEN 1 ELSE 0 END) AS replies
             FROM activities
             GROUP BY COALESCE(campaign_name, '')
             ORDER BY total DESC
@@ -699,7 +702,7 @@ def get_campaign_stats() -> Dict[str, Any]:
                 COUNT(*) AS total,
                 SUM(CASE WHEN a.channel = 'email' AND a.status = 'sent' THEN 1 ELSE 0 END) AS emails_sent,
                 SUM(CASE WHEN a.channel = 'whatsapp' AND a.status = 'sent' THEN 1 ELSE 0 END) AS whatsapp_sent,
-                SUM(CASE WHEN a.type IN ('reply', 'inbound') THEN 1 ELSE 0 END) AS replies
+                SUM(CASE WHEN a.type IN ('reply', 'inbound', 'email_reply', 'wa_reply', 'whatsapp_reply') THEN 1 ELSE 0 END) AS replies
             FROM activities a
             JOIN leads l ON l.id = a.lead_id
             GROUP BY COALESCE(l.business_type, '')
@@ -717,7 +720,7 @@ def get_campaign_stats() -> Dict[str, Any]:
                 COUNT(*) AS total,
                 SUM(CASE WHEN a.channel = 'email' AND a.status = 'sent' THEN 1 ELSE 0 END) AS emails_sent,
                 SUM(CASE WHEN a.channel = 'whatsapp' AND a.status = 'sent' THEN 1 ELSE 0 END) AS whatsapp_sent,
-                SUM(CASE WHEN a.type IN ('reply', 'inbound') THEN 1 ELSE 0 END) AS replies
+                SUM(CASE WHEN a.type IN ('reply', 'inbound', 'email_reply', 'wa_reply', 'whatsapp_reply') THEN 1 ELSE 0 END) AS replies
             FROM activities a
             JOIN leads l ON l.id = a.lead_id
             GROUP BY COALESCE(l.address, '')

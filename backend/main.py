@@ -1347,13 +1347,13 @@ async def get_stats():
         "SELECT COUNT(*) FROM activities WHERE channel = 'email' AND status = 'sent' AND date(created_at) = date('now')"
     ).fetchone()[0]
     replies_today = conn.execute(
-        "SELECT COUNT(*) FROM activities WHERE type IN ('reply', 'inbound') AND date(created_at) = date('now')"
+        "SELECT COUNT(*) FROM activities WHERE type IN ('reply', 'inbound', 'email_reply', 'wa_reply', 'whatsapp_reply') AND date(created_at) = date('now')"
     ).fetchone()[0]
     # Replies received today that have not yet had any outbound response after them
     new_replies = conn.execute(
         """
         SELECT COUNT(*) FROM activities a
-        WHERE a.type IN ('reply', 'inbound')
+        WHERE a.type IN ('reply', 'inbound', 'email_reply', 'wa_reply', 'whatsapp_reply')
           AND date(a.created_at) = date('now')
           AND NOT EXISTS (
               SELECT 1 FROM activities b
@@ -1428,7 +1428,7 @@ async def recent_replies(limit: int = 10):
             SELECT a.*, l.name AS lead_name, l.business_type, l.phone
             FROM activities a
             LEFT JOIN leads l ON l.id = a.lead_id
-            WHERE a.type IN ('reply', 'inbound', 'ai_reply')
+            WHERE a.type IN ('reply', 'inbound', 'ai_reply', 'email_reply', 'wa_reply', 'whatsapp_reply')
             ORDER BY a.created_at DESC, a.id DESC
             LIMIT ?
             """,
@@ -1527,7 +1527,7 @@ async def analytics_replies(limit: int = 100):
         FROM activities a
         LEFT JOIN leads l ON a.lead_id = l.id
         WHERE a.direction = 'inbound'
-           OR a.type IN ('reply', 'inbound', 'wa_reply', 'email_reply')
+           OR a.type IN ('reply', 'inbound', 'wa_reply', 'whatsapp_reply', 'email_reply')
         ORDER BY a.created_at DESC
         LIMIT ?
     """, (limit,)).fetchall()
@@ -1551,7 +1551,7 @@ async def analytics_summary():
     total_replies = conn.execute("""
         SELECT COUNT(*) FROM activities
         WHERE direction = 'inbound'
-           OR type IN ('reply', 'inbound', 'wa_reply', 'email_reply')
+           OR type IN ('reply', 'inbound', 'wa_reply', 'whatsapp_reply', 'email_reply')
     """).fetchone()[0]
     total_interested = conn.execute(
         "SELECT COUNT(*) FROM leads WHERE status = 'interested'"

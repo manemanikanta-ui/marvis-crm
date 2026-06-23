@@ -7,3 +7,5 @@ _check.js
 _extract.py
 __pycache__/
 *.pyc
+migrate_to_postgres.py
+leads_export.json

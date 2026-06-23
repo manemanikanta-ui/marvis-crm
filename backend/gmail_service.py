@@ -19,9 +19,12 @@ import os
 import re
 import json
 import base64
+import logging
 from datetime import datetime
 
 from db import get_db
+
+logger = logging.getLogger("marvis.gmail")
 
 # Gmail API user alias for the authenticated account (talktiv.ai@gmail.com).
 GMAIL_USER = "me"
@@ -138,7 +141,7 @@ def _list_added_message_ids(service, start_history_id: str):
             if not page_token:
                 break
     except Exception as e:
-        print(f"  gmail history.list error: {e}")
+        logger.exception(f"❌ Gmail webhook error: {e}")
     # de-dupe, preserve order
     return list(dict.fromkeys(ids))
 
@@ -157,7 +160,7 @@ def _process_message(service, message_id: str):
             .execute()
         )
     except Exception as e:
-        print(f"  gmail messages.get error for {message_id}: {e}")
+        logger.exception(f"❌ Gmail webhook error: {e}")
         return
 
     headers = {
@@ -165,7 +168,7 @@ def _process_message(service, message_id: str):
         for h in (msg.get("payload", {}) or {}).get("headers", [])
     }
     sender_email = _extract_email(msg)
-    print(f"📧 Extracted sender email: {sender_email}")
+    logger.info(f"📧 Extracted sender email: {sender_email}")
     subject = headers.get("subject", "")
     snippet = (msg.get("snippet", "") or "")[:200]
     if not sender_email:
@@ -175,11 +178,13 @@ def _process_message(service, message_id: str):
 
 def _handle_reply(sender_email: str, subject: str, snippet: str):
     now = datetime.now().isoformat()
+    logger.info(f"🔍 Searching leads for email: {sender_email}")
     conn = get_db()
     lead = conn.execute(
         "SELECT id, status, score, name FROM leads WHERE LOWER(email) = LOWER(?) LIMIT 1", (sender_email,)
     ).fetchone()
     conn.close()
+    logger.info(f"🔍 DB result: {dict(lead) if lead else None}")
 
     if not lead:
         conn = get_db()
@@ -204,10 +209,11 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
             metadata={"subject": subject, "sender": sender_email, "source": "gmail_webhook"},
         )
     except Exception as e:
-        print(f"  reply log error: {e}")
+        logger.exception(f"❌ Gmail webhook error: {e}")
 
     # Only a "contacted" lead advances to "responded" (do not override other states).
     if str(lead.get("status") or "") == "contacted":
+        logger.info(f"📝 Updating lead {lead_id} status")
         conn = get_db()
         conn.execute(
             "UPDATE leads SET status = 'responded', responded_at = ?, updated_at = ? WHERE id = ?",
@@ -234,7 +240,7 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
         if int(lead.get("score") or 0) < 75 and not lead_has_proof_pack(lead_id):
             handle_warm_lead_responded(lead_id)
     except Exception as e:
-        print(f"  warm-lead proof trigger error: {e}")
+        logger.exception(f"❌ Gmail webhook error: {e}")
 
 
 def process_gmail_push(body: dict):
@@ -263,4 +269,4 @@ def process_gmail_push(body: dict):
         if new_history_id:
             _upsert_watch_state(new_history_id)
     except Exception as e:
-        print(f"gmail push processing error: {e}")
+        logger.exception(f"❌ Gmail webhook error: {e}")

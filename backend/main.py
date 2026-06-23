@@ -4,6 +4,7 @@ FastAPI + SQLite — Lead Management + Auto Outreach
 """
 
 import asyncio
+import logging
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +29,11 @@ from db import get_db as shared_get_db
 from hud_bus import emit_hud_event, hud_manager, set_hud_loop
 
 load_dotenv()
+
+logger = logging.getLogger("marvis.main")
+# uvicorn does not configure the root logger, so app-level INFO logs (e.g. the
+# Gmail webhook step logging) would otherwise never reach Railway stdout.
+logging.basicConfig(level=logging.INFO)
 
 from crm_core import (
     classify_reply,
@@ -2293,7 +2299,7 @@ def _gmail_process_push(body):
         from gmail_service import process_gmail_push
         process_gmail_push(body)
     except Exception as e:
-        print(f"Gmail webhook background error: {e}")
+        logger.exception(f"❌ Gmail webhook background error: {e}")
 
 
 @app.post("/api/gmail/webhook")

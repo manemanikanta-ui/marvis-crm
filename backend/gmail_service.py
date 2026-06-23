@@ -226,12 +226,15 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
         # Telegram alert for a matched email reply.
         try:
             from telegram_notify import notify
-            notify(
+            result = notify(
                 f"📧 <b>Email Reply</b>\n"
                 f"{lead.get('name') or sender_email} → responded\n"
                 f"{snippet[:100]}"
             )
-            logger.info("📱 Telegram notification sent for email reply")
+            if result:
+                logger.info("📱 Telegram notification sent for email reply")
+            else:
+                logger.warning("⚠️ Telegram notify returned False — check token/chat_id")
         except Exception:
             logger.exception("❌ Telegram notify failed")
 

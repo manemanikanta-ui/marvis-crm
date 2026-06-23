@@ -98,6 +98,15 @@ def _extract_email(message):
     return None
 
 
+def extract_reply_only(snippet: str) -> str:
+    """Return just the new reply text, stripped of any quoted Gmail thread.
+
+    Gmail snippets often include the quoted history after an
+    "On <date> ... wrote:" marker; cut at the first such marker."""
+    cut = re.split(r'On .{10,50}wrote:', snippet or "")
+    return cut[0].strip()[:100]
+
+
 # ── push processing ─────────────────────────────────────────────────────────
 
 def gmail_watch() -> dict:
@@ -229,7 +238,7 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
             result = notify(
                 f"📧 <b>Email Reply</b>\n"
                 f"{lead.get('name') or sender_email} → responded\n"
-                f"{snippet[:100]}"
+                f"{extract_reply_only(snippet)}"
             )
             if result:
                 logger.info("📱 Telegram notification sent for email reply")

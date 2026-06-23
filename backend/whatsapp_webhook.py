@@ -190,7 +190,7 @@ def generate_ai_reply(lead: dict, inbound_message: str, history: list) -> str:
         lead_context = f"\n\nLead context: {lead.get('name','')}, {lead.get('business_type','')}, {lead.get('address','')}"
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=300,
             system=SYSTEM_PROMPT + lead_context,
             messages=messages

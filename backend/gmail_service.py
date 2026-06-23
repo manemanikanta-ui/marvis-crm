@@ -231,8 +231,9 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
                 f"{lead.get('name') or sender_email} → responded\n"
                 f"{snippet[:100]}"
             )
+            logger.info("📱 Telegram notification sent for email reply")
         except Exception:
-            pass
+            logger.exception("❌ Telegram notify failed")
 
     # Tier-2: warm lead with no proof pack yet → generate + send the assets email.
     try:

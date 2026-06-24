@@ -3,6 +3,16 @@ MARVIS CRM Backend
 FastAPI + SQLite — Lead Management + Auto Outreach
 """
 
+import sys
+# Windows consoles default to cp1252, which raises UnicodeEncodeError on emoji
+# in print() (e.g. the auto-send engine's robot glyph) and aborts startup when
+# launched directly via `uvicorn ...`. Force UTF-8 so no print can crash boot.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 import asyncio
 import logging
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, WebSocket, WebSocketDisconnect

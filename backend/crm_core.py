@@ -675,7 +675,7 @@ def get_campaign_stats() -> Dict[str, Any]:
         """
         SELECT COUNT(*)
         FROM activities
-        WHERE status LIKE 'failed%'
+        WHERE status LIKE 'failed%%'
           AND date(created_at) = date('now')
         """
     ).fetchone()

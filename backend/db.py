@@ -230,8 +230,23 @@ class DBConnection:
 def get_db() -> DBConnection:
     if USE_POSTGRES:
         url = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
-        conn = psycopg2.connect(url)
+        # connect_timeout: fail fast if Railway is unreachable instead of hanging.
+        conn = psycopg2.connect(url, connect_timeout=10)
         conn.autocommit = False
+        # Bound every statement and lock wait so a blocked DDL (e.g. in
+        # ensure_crm_schema) errors out quickly instead of wedging startup
+        # forever. Commit so the session settings persist past this txn.
+        try:
+            cur = conn.cursor()
+            cur.execute("SET statement_timeout = '30s'")
+            cur.execute("SET lock_timeout = '10s'")
+            cur.close()
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         return DBConnection(conn)
 
     SQLITE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -1596,17 +1596,24 @@ async def analytics_summary():
 async def hud_websocket(websocket: WebSocket):
     await hud_manager.connect(websocket)
     try:
-        # Push current CRM snapshot so HUD populates immediately on connect
+        # Push current CRM snapshot so HUD populates immediately on connect.
+        # The DB work is synchronous (psycopg2) — run it in a worker thread so a
+        # slow/locked query can never freeze the event loop and stall every other
+        # HTTP request (same off-loop pattern as ensure_crm_schema in startup).
         try:
-            conn = get_db()
-            total = conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
-            hot = conn.execute("SELECT COUNT(*) FROM leads WHERE score >= 60").fetchone()[0]
-            approvals = conn.execute(
-                "SELECT COUNT(*) FROM leads WHERE status IN ('pending_review','new')"
-                " AND (COALESCE(whatsapp_message,'') != '' OR COALESCE(email_subject,'') != ''"
-                " OR COALESCE(email_body,'') != '')"
-            ).fetchone()[0]
-            conn.close()
+            def _snapshot():
+                conn = get_db()
+                total = conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
+                hot = conn.execute("SELECT COUNT(*) FROM leads WHERE score >= 60").fetchone()[0]
+                approvals = conn.execute(
+                    "SELECT COUNT(*) FROM leads WHERE status IN ('pending_review','new')"
+                    " AND (COALESCE(whatsapp_message,'') != '' OR COALESCE(email_subject,'') != ''"
+                    " OR COALESCE(email_body,'') != '')"
+                ).fetchone()[0]
+                conn.close()
+                return total, hot, approvals
+
+            total, hot, approvals = await asyncio.to_thread(_snapshot)
             await websocket.send_text(json.dumps({
                 "type": "crm_snapshot",
                 "data": {"total_leads": total, "hot_leads": hot, "pending_approvals": approvals},
@@ -1622,9 +1629,12 @@ async def hud_websocket(websocket: WebSocket):
 
 @app.get("/api/settings")
 async def get_settings():
-    conn = get_db()
-    settings = {row['key']: row['value'] for row in conn.execute("SELECT * FROM settings").fetchall()}
-    conn.close()
+    def _load():
+        conn = get_db()
+        s = {row['key']: row['value'] for row in conn.execute("SELECT * FROM settings").fetchall()}
+        conn.close()
+        return s
+    settings = await asyncio.to_thread(_load)
     # Mask password
     if settings.get('email_pass'):
         settings['email_pass'] = '••••••••'
@@ -1632,13 +1642,15 @@ async def get_settings():
 
 @app.post("/api/settings")
 async def update_settings(update: SettingsUpdate):
-    conn = get_db()
-    conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (update.key, update.value)
-    )
-    conn.commit()
-    conn.close()
+    def _save():
+        conn = get_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (update.key, update.value)
+        )
+        conn.commit()
+        conn.close()
+    await asyncio.to_thread(_save)
     return {"success": True}
 
 
@@ -1649,7 +1661,7 @@ async def update_settings(update: SettingsUpdate):
 @app.get("/api/scheduler/status")
 async def scheduler_status():
     from scheduler import get_scheduler_status
-    return get_scheduler_status()
+    return await asyncio.to_thread(get_scheduler_status)
 
 
 @app.post("/api/scheduler/run-now")
@@ -2362,8 +2374,11 @@ async def startup():
     logger.info("startup: completed init_db")
 
     logger.info("startup: starting ensure_crm_schema")
-    ensure_crm_schema()
-    logger.info("startup: completed ensure_crm_schema")
+    try:
+        await asyncio.wait_for(asyncio.to_thread(ensure_crm_schema), timeout=15.0)
+        logger.info("startup: completed ensure_crm_schema")
+    except asyncio.TimeoutError:
+        logger.warning("startup: ensure_crm_schema timed out after 15s — skipping")
 
     # Migration: add email_source column if missing.
     # Guard with a column-exists check so a no-op ALTER never tries to take a

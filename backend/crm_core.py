@@ -650,31 +650,36 @@ def get_campaign_stats() -> Dict[str, Any]:
     conn = get_db()
     emails_sent = count_today_activity("email", status="sent")
     whatsapp_sent = count_today_activity("whatsapp", status="sent")
-    replies = conn.execute(
+    replies_row = conn.execute(
         """
         SELECT COUNT(*)
         FROM activities
         WHERE type IN ('reply', 'inbound', 'email_reply', 'wa_reply', 'whatsapp_reply')
           AND date(created_at) = date('now')
         """
-    ).fetchone()[0]
-    interested = conn.execute(
+    ).fetchone()
+    replies = replies_row[0] if replies_row else 0
+    interested_row = conn.execute(
         "SELECT COUNT(*) FROM leads WHERE status = 'interested'"
-    ).fetchone()[0]
-    booked = conn.execute(
+    ).fetchone()
+    interested = interested_row[0] if interested_row else 0
+    booked_row = conn.execute(
         "SELECT COUNT(*) FROM leads WHERE status = 'booked'"
-    ).fetchone()[0]
-    followups = conn.execute(
+    ).fetchone()
+    booked = booked_row[0] if booked_row else 0
+    followups_row = conn.execute(
         "SELECT COUNT(*) FROM follow_ups WHERE status = 'pending'"
-    ).fetchone()[0]
-    failures = conn.execute(
+    ).fetchone()
+    followups = followups_row[0] if followups_row else 0
+    failures_row = conn.execute(
         """
         SELECT COUNT(*)
         FROM activities
         WHERE status LIKE 'failed%'
           AND date(created_at) = date('now')
         """
-    ).fetchone()[0]
+    ).fetchone()
+    failures = failures_row[0] if failures_row else 0
 
     by_campaign = [
         dict(row)

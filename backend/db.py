@@ -173,12 +173,17 @@ class DBConnection:
     def execute(self, sql: str, params: Optional[Sequence[Any]] = None):
         if USE_POSTGRES:
             translated = _translate_sql(sql)
-            final_params = tuple(params or ())
             needs_returning = _should_returning_id(translated)
             if needs_returning:
                 translated = translated.rstrip().rstrip(";") + " RETURNING id"
             cursor = self._conn.cursor()
-            cursor.execute(translated, final_params)
+            # Pass params only when present so psycopg2 skips %-substitution on
+            # no-param queries; otherwise a bare % (e.g. LIKE 'failed%') is read
+            # as a placeholder and raises IndexError: tuple index out of range.
+            if params:
+                cursor.execute(translated, tuple(params))
+            else:
+                cursor.execute(translated)
             lastrowid = None
             if needs_returning:
                 row = cursor.fetchone()

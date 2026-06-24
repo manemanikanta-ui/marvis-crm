@@ -2355,28 +2355,44 @@ async def startup():
     ensure_crm_schema()
     logger.info("startup: completed ensure_crm_schema")
 
-    # Migration: add email_source column if missing
+    # Migration: add email_source column if missing.
+    # Guard with a column-exists check so a no-op ALTER never tries to take a
+    # table lock on Postgres (which can block behind another connection).
     logger.info("startup: starting migration email_source column")
     try:
+        from db import table_columns
         conn = get_db()
-        conn.execute("ALTER TABLE leads ADD COLUMN email_source TEXT DEFAULT ''")
-        conn.commit()
+        existing_cols = table_columns(conn, "leads")
         conn.close()
-        print("✅ Migration: email_source column added")
+        if "email_source" not in existing_cols:
+            conn = get_db()
+            conn.execute("ALTER TABLE leads ADD COLUMN email_source TEXT DEFAULT ''")
+            conn.commit()
+            conn.close()
+            print("✅ Migration: email_source column added")
+        else:
+            logger.info("startup: email_source column already exists, skipping")
     except Exception:
-        pass  # Column already exists
+        pass
     logger.info("startup: completed migration email_source column")
 
     # Migration: add responded_at column if missing (THING 3 — set when a lead replies)
     logger.info("startup: starting migration responded_at column")
     try:
+        from db import table_columns
         conn = get_db()
-        conn.execute("ALTER TABLE leads ADD COLUMN responded_at TEXT")
-        conn.commit()
+        existing_cols = table_columns(conn, "leads")
         conn.close()
-        print("✅ Migration: responded_at column added")
+        if "responded_at" not in existing_cols:
+            conn = get_db()
+            conn.execute("ALTER TABLE leads ADD COLUMN responded_at TEXT")
+            conn.commit()
+            conn.close()
+            print("✅ Migration: responded_at column added")
+        else:
+            logger.info("startup: responded_at column already exists, skipping")
     except Exception:
-        pass  # Column already exists
+        pass
     logger.info("startup: completed migration responded_at column")
 
     # One-time migration: re-score legacy leads with the current scoring model

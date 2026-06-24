@@ -2343,10 +2343,20 @@ async def gmail_watch_endpoint():
 
 @app.on_event("startup")
 async def startup():
+    logger.info("startup: starting set_hud_loop")
     set_hud_loop(asyncio.get_running_loop())
+    logger.info("startup: completed set_hud_loop")
+
+    logger.info("startup: starting init_db")
     init_db()
+    logger.info("startup: completed init_db")
+
+    logger.info("startup: starting ensure_crm_schema")
     ensure_crm_schema()
+    logger.info("startup: completed ensure_crm_schema")
+
     # Migration: add email_source column if missing
+    logger.info("startup: starting migration email_source column")
     try:
         conn = get_db()
         conn.execute("ALTER TABLE leads ADD COLUMN email_source TEXT DEFAULT ''")
@@ -2355,7 +2365,10 @@ async def startup():
         print("✅ Migration: email_source column added")
     except Exception:
         pass  # Column already exists
+    logger.info("startup: completed migration email_source column")
+
     # Migration: add responded_at column if missing (THING 3 — set when a lead replies)
+    logger.info("startup: starting migration responded_at column")
     try:
         conn = get_db()
         conn.execute("ALTER TABLE leads ADD COLUMN responded_at TEXT")
@@ -2364,13 +2377,17 @@ async def startup():
         print("✅ Migration: responded_at column added")
     except Exception:
         pass  # Column already exists
+    logger.info("startup: completed migration responded_at column")
+
     # One-time migration: re-score legacy leads with the current scoring model
+    logger.info("startup: starting migration recompute_all_scores")
     try:
         conn = get_db()
         row = conn.execute("SELECT value FROM settings WHERE key = 'score_model_version'").fetchone()
         version = row[0] if row else None
         conn.close()
         if version != "2":
+            logger.info("startup: recompute_all_scores running (version != '2')")
             result = recompute_all_scores()
             conn = get_db()
             conn.execute(
@@ -2379,14 +2396,27 @@ async def startup():
             conn.commit()
             conn.close()
             print(f"✅ Migration: re-scored {result['updated']} leads (scoring model v2)")
+        else:
+            logger.info("startup: recompute_all_scores skipped (already v2)")
     except Exception as e:
         print(f"Score migration error: {e}")
+    logger.info("startup: completed migration recompute_all_scores")
+
+    logger.info("startup: starting followup_scheduler thread")
     t = threading.Thread(target=followup_scheduler, daemon=True)
     t.start()
+    logger.info("startup: completed followup_scheduler thread")
+
+    logger.info("startup: starting start_auto_engine")
     from email_engine import start_auto_engine
     start_auto_engine()
+    logger.info("startup: completed start_auto_engine")
+
+    logger.info("startup: starting start_scheduler_service")
     from scheduler import start_scheduler_service
     start_scheduler_service()
+    logger.info("startup: completed start_scheduler_service")
+
     print("✅ MARVIS CRM started — http://localhost:8000")
     print("📧 Email automation engine running")
 

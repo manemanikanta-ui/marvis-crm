@@ -134,6 +134,20 @@ def _sync_inserts(railway_conn, local_conn, table: str, time_col: str,
     return added
 
 
+def _realign_activities_seq(local_conn) -> None:
+    """Push activities_id_seq past every synced Railway id so local SERIAL inserts
+    (which use nextval) never collide with an explicitly-synced id."""
+    with local_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT setval('activities_id_seq',
+                GREATEST(nextval('activities_id_seq'),
+                (SELECT MAX(id) FROM activities)))
+            """
+        )
+    local_conn.commit()
+
+
 # ── one sync cycle ───────────────────────────────────────────────────────────
 
 def _run_once() -> None:
@@ -153,6 +167,11 @@ def _run_once() -> None:
             railway_conn, local_conn, "activities", "created_at", since,
             where_extra="direction = 'inbound'",
         )
+        # Keep the local sequence ahead of all synced Railway ids so future
+        # local inserts (nextval-based) never hit a duplicate-key collision.
+        if activities_added > 0:
+            _realign_activities_seq(local_conn)
+
         _sync_inserts(railway_conn, local_conn, "unmatched_replies", "received_at", since)
 
         _set_last_sync(local_conn, cycle_started)

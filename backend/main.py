@@ -2470,6 +2470,10 @@ async def startup():
     start_scheduler_service()
     logger.info("startup: completed start_scheduler_service")
 
+    from railway_sync import start_sync_service
+    start_sync_service()
+    logger.info("startup: completed start_sync_service")
+
 
 @app.on_event("shutdown")
 async def shutdown():

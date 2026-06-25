@@ -22,3 +22,13 @@ conversation_*.json
 
 # Ngrok
 start_ngrok.py
+
+# Local DB files — never commit
+*.db
+crm.db
+YOUR_DB_FILE_PATH_HERE
+
+# One-off / debug scripts — not part of the app
+check_db.py
+export_leads.py
+migrate_railway_to_local.py

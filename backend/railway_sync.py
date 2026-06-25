@@ -159,18 +159,25 @@ _LEAD_PUSH_COLUMNS = [
     "email_subject", "email_body", "created_at", "updated_at",
     "contacted_at", "responded_at",
 ]
-# On conflict we only refresh the mutable fields — never clobber Railway-side
-# content (e.g. an enrichment that ran there) with stale local values.
+# Incremental (30s) cycle refreshes only the mutable fields on conflict — never
+# clobber Railway-side content with stale local values mid-session.
 _LEAD_UPDATE_COLUMNS = ["status", "responded_at", "updated_at", "contacted_at"]
+# The one-time startup full sync also refreshes the contact identity fields so
+# Railway holds the correct email/phone/name — the Gmail webhook matches replies
+# by LOWER(email), so a wrong/missing email there means missed matches.
+_LEAD_FULL_SYNC_UPDATE_COLUMNS = _LEAD_UPDATE_COLUMNS + ["name", "email", "phone"]
 
 
-def _push_leads_to_railway(railway_conn, local_conn, since: str | None) -> int:
+def _push_leads_to_railway(railway_conn, local_conn, since: str | None,
+                           update_columns: list[str] | None = None) -> int:
     """Push locally-created/updated leads up to Railway.
 
-    INSERT ... ON CONFLICT (id) DO UPDATE (mutable subset). When `since` is None,
-    pushes ALL local leads (one-time full sync); otherwise only rows whose
-    created_at/updated_at is newer than the cursor. Only columns present in BOTH
-    databases are copied (schema-drift safe)."""
+    INSERT ... ON CONFLICT (id) DO UPDATE (refreshing `update_columns`). When
+    `since` is None, pushes ALL local leads (one-time full sync); otherwise only
+    rows whose created_at/updated_at is newer than the cursor. Only columns
+    present in BOTH databases are copied (schema-drift safe)."""
+    if update_columns is None:
+        update_columns = _LEAD_UPDATE_COLUMNS
     common_set = set(_columns(local_conn, "leads")) & set(_columns(railway_conn, "leads"))
     cols = [c for c in _LEAD_PUSH_COLUMNS if c in common_set]
     if "id" not in cols:
@@ -189,7 +196,7 @@ def _push_leads_to_railway(railway_conn, local_conn, since: str | None) -> int:
     if not rows:
         return 0
 
-    update_cols = [c for c in _LEAD_UPDATE_COLUMNS if c in cols]
+    update_cols = [c for c in update_columns if c in cols]
     set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
     placeholders = ", ".join(["%s"] * len(cols))
     insert_sql = (
@@ -212,7 +219,10 @@ def _initial_full_sync() -> None:
     railway_conn = _connect(os.getenv("RAILWAY_SYNC_URL"))
     local_conn = _connect(os.getenv("DATABASE_URL"))
     try:
-        pushed = _push_leads_to_railway(railway_conn, local_conn, since=None)
+        pushed = _push_leads_to_railway(
+            railway_conn, local_conn, since=None,
+            update_columns=_LEAD_FULL_SYNC_UPDATE_COLUMNS,
+        )
         logger.info(f"🔄 Initial full sync: pushed {pushed} leads to Railway")
     finally:
         for c in (railway_conn, local_conn):

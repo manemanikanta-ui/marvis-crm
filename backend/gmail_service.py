@@ -103,7 +103,10 @@ def extract_reply_only(snippet: str) -> str:
 
     Gmail snippets often include the quoted history after an
     "On <date> ... wrote:" marker; cut at the first such marker."""
-    cut = re.split(r'On .{10,50}wrote:', snippet or "")
+    # The middle (date + sender name + <email>) routinely runs 60-100+ chars, so
+    # the old {10,50} cap never matched and the timestamp leaked through. Use a
+    # wide, non-greedy bound so it cuts at the FIRST "wrote:" marker.
+    cut = re.split(r'On .{10,200}?wrote:', snippet or "")
     return cut[0].strip()[:100]
 
 

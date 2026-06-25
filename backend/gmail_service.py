@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import html
 import base64
 import logging
 from datetime import datetime
@@ -106,7 +107,9 @@ def extract_reply_only(snippet: str) -> str:
     # The middle (date + sender name + <email>) routinely runs 60-100+ chars, so
     # the old {10,50} cap never matched and the timestamp leaked through. Use a
     # wide, non-greedy bound so it cuts at the FIRST "wrote:" marker.
-    cut = re.split(r'On .{10,200}?wrote:', snippet or "")
+    # Unescape first so HTML entities (&lt; &gt; &#39; &amp;) become real chars.
+    text = html.unescape(snippet or "")
+    cut = re.split(r'On .{10,200}?wrote:', text)
     return cut[0].strip()[:100]
 
 

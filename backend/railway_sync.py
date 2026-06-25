@@ -148,6 +148,80 @@ def _realign_activities_seq(local_conn) -> None:
     local_conn.commit()
 
 
+# ── local → Railway lead push ────────────────────────────────────────────────
+
+# Full column set pushed local → Railway so a locally-created lead exists on the
+# public backend (where the Gmail/WhatsApp webhooks run and need to match it).
+_LEAD_PUSH_COLUMNS = [
+    "id", "name", "contact_name", "business_type", "phone", "email",
+    "email_source", "website", "address", "city", "rating", "reviews",
+    "score", "source", "status", "priority", "notes", "whatsapp_message",
+    "email_subject", "email_body", "created_at", "updated_at",
+    "contacted_at", "responded_at",
+]
+# On conflict we only refresh the mutable fields — never clobber Railway-side
+# content (e.g. an enrichment that ran there) with stale local values.
+_LEAD_UPDATE_COLUMNS = ["status", "responded_at", "updated_at", "contacted_at"]
+
+
+def _push_leads_to_railway(railway_conn, local_conn, since: str | None) -> int:
+    """Push locally-created/updated leads up to Railway.
+
+    INSERT ... ON CONFLICT (id) DO UPDATE (mutable subset). When `since` is None,
+    pushes ALL local leads (one-time full sync); otherwise only rows whose
+    created_at/updated_at is newer than the cursor. Only columns present in BOTH
+    databases are copied (schema-drift safe)."""
+    common_set = set(_columns(local_conn, "leads")) & set(_columns(railway_conn, "leads"))
+    cols = [c for c in _LEAD_PUSH_COLUMNS if c in common_set]
+    if "id" not in cols:
+        return 0
+    col_list = ", ".join(f'"{c}"' for c in cols)
+
+    select_sql = f"SELECT {col_list} FROM leads"
+    params: tuple = ()
+    if since is not None:
+        select_sql += " WHERE updated_at > %s OR created_at > %s"
+        params = (since, since)
+
+    with local_conn.cursor() as cur:
+        cur.execute(select_sql, params)
+        rows = cur.fetchall()
+    if not rows:
+        return 0
+
+    update_cols = [c for c in _LEAD_UPDATE_COLUMNS if c in cols]
+    set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+    placeholders = ", ".join(["%s"] * len(cols))
+    insert_sql = (
+        f"INSERT INTO leads ({col_list}) VALUES ({placeholders}) "
+        f"ON CONFLICT (id) DO UPDATE SET {set_clause}"
+    )
+
+    pushed = 0
+    with railway_conn.cursor() as cur:
+        for row in rows:
+            cur.execute(insert_sql, row)
+            pushed += 1
+    railway_conn.commit()
+    return pushed
+
+
+def _initial_full_sync() -> None:
+    """One-time push of ALL local leads to Railway (no time filter), so existing
+    leads are immediately matchable by the public webhook."""
+    railway_conn = _connect(os.getenv("RAILWAY_SYNC_URL"))
+    local_conn = _connect(os.getenv("DATABASE_URL"))
+    try:
+        pushed = _push_leads_to_railway(railway_conn, local_conn, since=None)
+        logger.info(f"🔄 Initial full sync: pushed {pushed} leads to Railway")
+    finally:
+        for c in (railway_conn, local_conn):
+            try:
+                c.close()
+            except Exception:
+                pass
+
+
 # ── one sync cycle ───────────────────────────────────────────────────────────
 
 def _run_once() -> None:
@@ -174,12 +248,17 @@ def _run_once() -> None:
 
         _sync_inserts(railway_conn, local_conn, "unmatched_replies", "received_at", since)
 
+        # LOCAL → RAILWAY: push locally new/changed leads up so the public
+        # webhook can match any lead that exists locally.
+        leads_pushed = _push_leads_to_railway(railway_conn, local_conn, since)
+
         _set_last_sync(local_conn, cycle_started)
 
         # Only log when something actually changed (no idle-cycle spam).
-        if leads_updated or activities_added:
+        if leads_updated or activities_added or leads_pushed:
             logger.info(
-                f"🔄 Sync complete: {leads_updated} leads updated, {activities_added} activities added"
+                f"🔄 Sync complete: {leads_updated} leads updated, "
+                f"{activities_added} activities added, {leads_pushed} leads pushed"
             )
     finally:
         for c in (railway_conn, local_conn):
@@ -190,6 +269,13 @@ def _run_once() -> None:
 
 
 def _loop() -> None:
+    # Run the one-time full lead push first (off the request path, so it never
+    # blocks FastAPI startup), then settle into the 30s incremental cycle.
+    try:
+        _initial_full_sync()
+    except Exception as e:
+        logger.warning(f"⚠️ Initial full sync failed: {e}")
+
     while True:
         time.sleep(SYNC_INTERVAL_SECONDS)
         try:

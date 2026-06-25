@@ -213,7 +213,8 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
     try:
         from crm_core import log_activity_event
         log_activity_event(
-            lead_id, "email_reply", "email", snippet,
+            lead_id, "email_reply", "email",
+            extract_reply_only(snippet),
             status="received", direction="inbound",
             metadata={"subject": subject, "sender": sender_email, "source": "gmail_webhook"},
         )
@@ -232,20 +233,20 @@ def _handle_reply(sender_email: str, subject: str, snippet: str):
         conn.close()
         print(f"  💬 Lead {lead_id} → responded")
 
-        # Telegram alert for a matched email reply.
-        try:
-            from telegram_notify import notify
-            result = notify(
-                f"📧 <b>Email Reply</b>\n"
-                f"{lead.get('name') or sender_email} → responded\n"
-                f"{extract_reply_only(snippet)}"
-            )
-            if result:
-                logger.info("📱 Telegram notification sent for email reply")
-            else:
-                logger.warning("⚠️ Telegram notify returned False — check token/chat_id")
-        except Exception:
-            logger.exception("❌ Telegram notify failed")
+    # Telegram alert fires on every inbound reply, regardless of lead status.
+    try:
+        from telegram_notify import notify
+        result = notify(
+            f"📧 <b>Email Reply</b>\n"
+            f"{lead.get('name') or sender_email}\n"
+            f"{extract_reply_only(snippet)}"
+        )
+        if result:
+            logger.info("📱 Telegram notification sent for email reply")
+        else:
+            logger.warning("⚠️ Telegram notify returned False")
+    except Exception:
+        logger.exception("❌ Telegram notify failed")
 
     # Tier-2: warm lead with no proof pack yet → generate + send the assets email.
     try:

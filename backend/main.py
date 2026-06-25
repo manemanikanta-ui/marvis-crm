@@ -48,6 +48,8 @@ logging.basicConfig(level=logging.INFO)
 from crm_core import (
     classify_reply,
     ensure_crm_schema,
+    is_schema_verified,
+    mark_schema_ready,
     get_campaign_stats,
     get_lead_timeline,
     get_pending_approvals,
@@ -2375,10 +2377,20 @@ async def startup():
 
     logger.info("startup: starting ensure_crm_schema")
     try:
-        await asyncio.wait_for(asyncio.to_thread(ensure_crm_schema), timeout=15.0)
-        logger.info("startup: completed ensure_crm_schema")
+        # Fast 5s pre-check: if a previous boot already wrote the schema_verified
+        # marker, skip the schema DDL (and its potential 15s lock-wait) entirely.
+        verified = await asyncio.wait_for(asyncio.to_thread(is_schema_verified), timeout=5.0)
+        if verified:
+            mark_schema_ready()
+            logger.info("startup: schema already verified, skipping")
+        else:
+            await asyncio.wait_for(asyncio.to_thread(ensure_crm_schema), timeout=15.0)
+            logger.info("startup: completed ensure_crm_schema")
     except asyncio.TimeoutError:
-        logger.warning("startup: ensure_crm_schema timed out after 15s — skipping")
+        # The check or the schema run blew its budget — skip rather than wedge
+        # startup, and mark ready so lazy callers don't re-trigger the hang.
+        mark_schema_ready()
+        logger.warning("startup: schema check/ensure timed out — skipping ensure_crm_schema")
 
     # Migration: add email_source column if missing.
     # Guard with a column-exists check so a no-op ALTER never tries to take a
@@ -2457,6 +2469,18 @@ async def startup():
     from scheduler import start_scheduler_service
     start_scheduler_service()
     logger.info("startup: completed start_scheduler_service")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    # Release pooled Postgres connections on graceful uvicorn shutdown so we
+    # don't leave idle backends held open on Railway.
+    try:
+        from db import close_pg_pool
+        close_pg_pool()
+        logger.info("shutdown: closed Postgres connection pool")
+    except Exception as e:
+        logger.warning(f"shutdown: pool close failed: {e}")
 
     print("✅ MARVIS CRM started — http://localhost:8000")
     print("📧 Email automation engine running")

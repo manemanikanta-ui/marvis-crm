@@ -58,6 +58,11 @@ DEFAULT_SAFETY_SETTINGS = {
 _schema_lock = threading.Lock()
 _schema_ready = False
 
+# Settings marker written after the first successful schema verification. On
+# every later boot, a fast SELECT for this key lets startup skip the schema DDL
+# (and its potential 15s Railway lock-wait) entirely.
+SCHEMA_VERIFIED_KEY = "schema_verified"
+
 TIMELINE_ICON_MAP = {
     "email": ("📧", "Email Sent"),
     "whatsapp": ("📱", "WhatsApp Sent"),
@@ -106,6 +111,27 @@ def _now_iso() -> str:
     return datetime.now().astimezone(IST).isoformat()
 
 
+def is_schema_verified() -> bool:
+    """Fast single-SELECT check: did a previous boot mark the schema verified?
+    Returns False on any error so the caller safely falls back to running it."""
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (SCHEMA_VERIFIED_KEY,)
+        ).fetchone()
+        conn.close()
+        return bool(row and str(row[0]) == "1")
+    except Exception:
+        return False
+
+
+def mark_schema_ready() -> None:
+    """Set the in-process guard so lazy callers also skip ensure_crm_schema()
+    once startup has decided the schema is already verified."""
+    global _schema_ready
+    _schema_ready = True
+
+
 def ensure_crm_schema():
     global _schema_ready
     if _schema_ready:
@@ -113,6 +139,12 @@ def ensure_crm_schema():
 
     with _schema_lock:
         if _schema_ready:
+            return
+
+        # A previous boot already verified the schema — skip the (potentially
+        # lock-blocked) DDL entirely. Universal: covers startup and lazy callers.
+        if is_schema_verified():
+            _schema_ready = True
             return
 
         try:
@@ -180,6 +212,12 @@ def ensure_crm_schema():
                     "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                     (k, v),
                 ))
+
+            # 4. Mark verified so every future boot can skip this whole function.
+            _step(lambda: conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (SCHEMA_VERIFIED_KEY, "1"),
+            ))
 
             conn.close()
             _schema_ready = True

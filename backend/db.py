@@ -18,6 +18,56 @@ USE_POSTGRES = bool(os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL"
 if USE_POSTGRES:
     import psycopg2
     import psycopg2.extras
+    import psycopg2.pool
+
+# Module-level Postgres connection pool. Opening a fresh psycopg2 connection to
+# Railway costs 100-300ms each; a page load makes 10-20 DB calls, so a pool that
+# hands back warm connections removes seconds of per-request connection overhead.
+# Created lazily on first get_db() in Postgres mode; never used for SQLite.
+_pg_pool = None
+_pg_pool_lock = None
+if USE_POSTGRES:
+    import threading as _threading
+    _pg_pool_lock = _threading.Lock()
+
+
+def _get_pg_pool():
+    """Lazily build (once) the threaded Postgres pool. min=2, max=10."""
+    global _pg_pool
+    if _pg_pool is not None:
+        return _pg_pool
+    with _pg_pool_lock:
+        if _pg_pool is None:
+            url = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
+            _pg_pool = psycopg2.pool.ThreadedConnectionPool(
+                minconn=2,
+                maxconn=10,
+                dsn=url,
+                connect_timeout=10,
+                # Apply statement/lock timeouts as server-side connection options
+                # at connect time — persists for the connection's life with zero
+                # extra round-trips per get_db() (replaces the old per-call SET).
+                options="-c statement_timeout=30000 -c lock_timeout=10000",
+            )
+    return _pg_pool
+
+
+def close_pg_pool():
+    """Close every pooled connection — call on app shutdown."""
+    global _pg_pool
+    if _pg_pool is not None:
+        try:
+            _pg_pool.closeall()
+        except Exception:
+            pass
+        _pg_pool = None
+
+
+# Self-contained shutdown cleanup: release pooled connections at interpreter
+# exit (covers uvicorn's graceful shutdown) without needing a hook in main.py.
+# No-op in SQLite mode since the pool is never created.
+import atexit as _atexit
+_atexit.register(close_pg_pool)
 
 
 class RowProxy(Mapping):
@@ -167,8 +217,9 @@ def _translate_sql(sql: str) -> str:
 
 
 class DBConnection:
-    def __init__(self, conn: Any):
+    def __init__(self, conn: Any, pooled: bool = False):
         self._conn = conn
+        self._pooled = pooled
 
     def execute(self, sql: str, params: Optional[Sequence[Any]] = None):
         if USE_POSTGRES:
@@ -218,6 +269,18 @@ class DBConnection:
         return self._conn.commit()
 
     def close(self):
+        # Pooled Postgres connections are returned to the pool, not closed.
+        # ThreadedConnectionPool.putconn() rolls back any non-idle transaction,
+        # so the next caller never inherits a leftover/aborted transaction.
+        if self._pooled and _pg_pool is not None:
+            try:
+                _pg_pool.putconn(self._conn)
+                return
+            except Exception:
+                try:
+                    return self._conn.close()
+                except Exception:
+                    return None
         return self._conn.close()
 
     def cursor(self):
@@ -229,25 +292,13 @@ class DBConnection:
 
 def get_db() -> DBConnection:
     if USE_POSTGRES:
-        url = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
-        # connect_timeout: fail fast if Railway is unreachable instead of hanging.
-        conn = psycopg2.connect(url, connect_timeout=10)
+        # Borrow a warm connection from the pool instead of opening a fresh one
+        # (saves the 100-300ms Railway connect cost on every call). statement/
+        # lock timeouts are applied as connection options when the pool creates
+        # each physical connection (see _get_pg_pool). conn.close() returns it.
+        conn = _get_pg_pool().getconn()
         conn.autocommit = False
-        # Bound every statement and lock wait so a blocked DDL (e.g. in
-        # ensure_crm_schema) errors out quickly instead of wedging startup
-        # forever. Commit so the session settings persist past this txn.
-        try:
-            cur = conn.cursor()
-            cur.execute("SET statement_timeout = '30s'")
-            cur.execute("SET lock_timeout = '10s'")
-            cur.close()
-            conn.commit()
-        except Exception:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-        return DBConnection(conn)
+        return DBConnection(conn, pooled=True)
 
     SQLITE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(SQLITE_DB_PATH, timeout=30, isolation_level=None)

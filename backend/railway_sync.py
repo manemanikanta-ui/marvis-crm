@@ -262,8 +262,6 @@ def _run_once() -> None:
         # as UTC-aware ISO so the next read compares by true instant.
         cycle_started = datetime.now(timezone.utc).isoformat()
         since = _get_last_sync(local_conn)
-        # TEMP DEBUG: confirm the cycle fires and what cursor it's using.
-        logger.info(f"🔄 Sync cycle starting, last_sync={since}")
 
         leads_updated = _sync_leads(railway_conn, local_conn, since)
         activities_added = _sync_inserts(
@@ -282,9 +280,6 @@ def _run_once() -> None:
         leads_pushed = _push_leads_to_railway(railway_conn, local_conn, since)
 
         _set_last_sync(local_conn, cycle_started)
-
-        # TEMP DEBUG: log every cycle (even idle) so we can see it runs.
-        logger.info(f"🔄 Cycle done: {leads_updated} leads, {activities_added} activities")
 
         # Only log when something actually changed (no idle-cycle spam).
         if leads_updated or activities_added or leads_pushed:

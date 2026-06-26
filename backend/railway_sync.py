@@ -21,7 +21,7 @@ import os
 import time
 import threading
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger("marvis.railway_sync")
 
@@ -59,14 +59,24 @@ def _columns(conn, table: str) -> list[str]:
 
 # ── last-sync cursor (stored in the local settings table) ────────────────────
 
-def _get_last_sync(local_conn) -> str:
+def _get_last_sync(local_conn) -> datetime:
+    """Return the sync cursor as a UTC-aware datetime, so every timestamp
+    comparison is timezone-correct regardless of how the value was stored."""
     with local_conn.cursor() as cur:
         cur.execute("SELECT value FROM settings WHERE key = %s", (SETTINGS_KEY,))
         row = cur.fetchone()
     if row and row[0]:
-        return row[0]
-    # First run: look back a fixed window so we don't miss recent replies.
-    return (datetime.now() - timedelta(days=FIRST_RUN_LOOKBACK_DAYS)).isoformat()
+        try:
+            parsed = datetime.fromisoformat(row[0])
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            # A naive value (the old cursor format) was written by datetime.now()
+            # on this local machine, so astimezone() reads it as local time and
+            # converts to UTC. An already-aware value is just normalised to UTC.
+            return parsed.astimezone(timezone.utc)
+    # First run (or an unparseable value): look back a fixed window.
+    return datetime.now(timezone.utc) - timedelta(days=FIRST_RUN_LOOKBACK_DAYS)
 
 
 def _set_last_sync(local_conn, ts: str) -> None:
@@ -86,7 +96,8 @@ def _sync_leads(railway_conn, local_conn, since: str) -> int:
     Never inserts — leads originate locally."""
     with railway_conn.cursor() as cur:
         cur.execute(
-            "SELECT id, status, responded_at, updated_at FROM leads WHERE updated_at > %s",
+            "SELECT id, status, responded_at, updated_at FROM leads "
+            "WHERE NULLIF(updated_at, '')::timestamptz > %s",
             (since,),
         )
         rows = cur.fetchall()
@@ -112,7 +123,9 @@ def _sync_inserts(railway_conn, local_conn, table: str, time_col: str,
         return 0
     col_list = ", ".join(f'"{c}"' for c in common)
 
-    sql_where = f"{time_col} > %s"
+    # Cast the text timestamp column to timestamptz so the comparison is by true
+    # instant (handles +05:30 / +00:00 / naive uniformly). NULLIF guards a blank.
+    sql_where = f"NULLIF({time_col}, '')::timestamptz > %s"
     if where_extra:
         sql_where = f"{where_extra} AND {sql_where}"
 
@@ -187,7 +200,10 @@ def _push_leads_to_railway(railway_conn, local_conn, since: str | None,
     select_sql = f"SELECT {col_list} FROM leads"
     params: tuple = ()
     if since is not None:
-        select_sql += " WHERE updated_at > %s OR created_at > %s"
+        select_sql += (
+            " WHERE NULLIF(updated_at, '')::timestamptz > %s "
+            "OR NULLIF(created_at, '')::timestamptz > %s"
+        )
         params = (since, since)
 
     with local_conn.cursor() as cur:
@@ -242,8 +258,9 @@ def _run_once() -> None:
     local_conn = _connect(local_url)
     try:
         # Capture the cycle start time up front and use it as the next cursor, so
-        # rows written to Railway *during* this cycle are caught next time.
-        cycle_started = datetime.now().isoformat()
+        # rows written to Railway *during* this cycle are caught next time. Stored
+        # as UTC-aware ISO so the next read compares by true instant.
+        cycle_started = datetime.now(timezone.utc).isoformat()
         since = _get_last_sync(local_conn)
         # TEMP DEBUG: confirm the cycle fires and what cursor it's using.
         logger.info(f"🔄 Sync cycle starting, last_sync={since}")

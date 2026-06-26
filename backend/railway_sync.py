@@ -229,6 +229,18 @@ def _push_leads_to_railway(railway_conn, local_conn, since: str | None,
     return pushed
 
 
+def _realign_railway_leads_seq(railway_conn) -> None:
+    """Keep Railway's leads_id_seq in the reserved range so Railway-minted leads
+    (e.g. the website contact form) never collide with local-origin ids.
+    Idempotent — self-heals the sequence on every startup (e.g. after a DB
+    restore that would otherwise reset it below the reserved floor)."""
+    with railway_conn.cursor() as cur:
+        cur.execute(
+            "SELECT setval('leads_id_seq', GREATEST(MAX(id), 500000), true) FROM leads"
+        )
+    railway_conn.commit()
+
+
 def _initial_full_sync() -> None:
     """One-time push of ALL local leads to Railway (no time filter), so existing
     leads are immediately matchable by the public webhook."""
@@ -240,6 +252,9 @@ def _initial_full_sync() -> None:
             update_columns=_LEAD_FULL_SYNC_UPDATE_COLUMNS,
         )
         logger.info(f"🔄 Initial full sync: pushed {pushed} leads to Railway")
+        # Realign Railway leads_id_seq so it never collides with local ids
+        # (local uses 1–499999, Railway starts at 500000).
+        _realign_railway_leads_seq(railway_conn)
     finally:
         for c in (railway_conn, local_conn):
             try:

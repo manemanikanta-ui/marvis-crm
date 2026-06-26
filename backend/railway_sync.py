@@ -23,6 +23,15 @@ import threading
 import logging
 from datetime import datetime, timedelta, timezone
 
+# Old cursors were written naive in India Standard Time. Interpret naive values
+# as IST explicitly rather than relying on the host's local tz. IST has no DST,
+# so the fixed +05:30 offset is an exact fallback if the IANA tzdata is missing.
+try:
+    from zoneinfo import ZoneInfo  # stdlib since Python 3.9
+    IST = ZoneInfo("Asia/Kolkata")
+except Exception:  # pragma: no cover - tzdata not installed
+    IST = timezone(timedelta(hours=5, minutes=30))
+
 logger = logging.getLogger("marvis.railway_sync")
 
 SYNC_INTERVAL_SECONDS = 30
@@ -71,9 +80,11 @@ def _get_last_sync(local_conn) -> datetime:
         except ValueError:
             parsed = None
         if parsed is not None:
-            # A naive value (the old cursor format) was written by datetime.now()
-            # on this local machine, so astimezone() reads it as local time and
-            # converts to UTC. An already-aware value is just normalised to UTC.
+            # Old cursors were written naive in IST. Treat a naive value as IST
+            # explicitly (never rely on the host's local tz), then convert to UTC.
+            # An already-aware value (new UTC format) is just normalised to UTC.
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=IST)
             return parsed.astimezone(timezone.utc)
     # First run (or an unparseable value): look back a fixed window.
     return datetime.now(timezone.utc) - timedelta(days=FIRST_RUN_LOOKBACK_DAYS)
@@ -277,6 +288,7 @@ def _run_once() -> None:
         # as UTC-aware ISO so the next read compares by true instant.
         cycle_started = datetime.now(timezone.utc).isoformat()
         since = _get_last_sync(local_conn)
+        logger.info(f"Sync cursor: UTC={since.isoformat()} IST={since.astimezone(IST).isoformat()}")
 
         leads_updated = _sync_leads(railway_conn, local_conn, since)
         activities_added = _sync_inserts(

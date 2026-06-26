@@ -205,11 +205,13 @@ def get_category_profile(category: str, city: str = "") -> dict:
     return filled
 
 
-def build_outreach_prompt(lead: dict, proof_pack_url=None) -> str:
+def build_outreach_prompt(lead: dict, proof_pack_url=None, context=None) -> str:
     """Category-aware outreach prompt. Resolves the lead's CATEGORY_PROFILES voice,
     applies the global + per-category hard rules, and produces a WhatsApp message
     plus a 3-email drip (Day 0 / 3 / 7). Returns JSON {whatsapp, emails:[...]}.
-    proof_pack_url (Tier-1 hot leads) is woven into Email 1 when present."""
+    proof_pack_url (Tier-1 hot leads) is woven into Email 1 when present.
+    context (optional free text from Manikanta) is prepended to personalise the
+    outreach — used for manual leads where Claude has no scraped signals."""
     name = lead.get('name', 'your business')
     contact_name = (lead.get('contact_name') or '').strip()
     # DB stores category under `business_type`; fall back to `category` for compatibility.
@@ -293,6 +295,15 @@ def build_outreach_prompt(lead: dict, proof_pack_url=None) -> str:
     cat_forbidden = ", ".join(profile.get("forbidden", [])) or "none"
     global_forbidden = ", ".join(GLOBAL_FORBIDDEN)
 
+    # Optional free-text context from Manikanta (manual leads). Prepended before
+    # the category-voice section so it personalises tone without changing the rules.
+    context_block = ""
+    if context and str(context).strip():
+        context_block = (
+            f"Additional context from Manikanta: {str(context).strip()}\n"
+            "Use this to personalise the outreach email and WhatsApp message.\n\n"
+        )
+
     return f"""You are Manikanta Mane, founder of Talktiv AI, writing to a business owner.
 The messages are FROM you TO them. Never address Manikanta. Never invent facts.
 
@@ -307,7 +318,7 @@ Has a website: {has_website}
 Their likely pain: {pain}
 Lead score: {score}
 
-VOICE FOR THIS CATEGORY (tone: {profile['tone']})
+{context_block}VOICE FOR THIS CATEGORY (tone: {profile['tone']})
 Core pain to lean on: {profile['hook']}
 Credibility line you may adapt: {profile['trust_line']}
 Style: {profile['style_notes']}
@@ -401,12 +412,12 @@ def validate_enrichment_output(result: dict, lead: dict) -> tuple[bool, str]:
     return True, "OK"
 
 
-def _generate_outreach(client, lead: dict, proof_pack_url=None) -> dict:
+def _generate_outreach(client, lead: dict, proof_pack_url=None, context=None) -> dict:
     """
     Single Sonnet call producing the category-aware outreach.
     Returns the raw parsed JSON {whatsapp, emails:[{day,subject,body}, ...]} — {} on failure.
     """
-    prompt = build_outreach_prompt(lead, proof_pack_url)
+    prompt = build_outreach_prompt(lead, proof_pack_url, context=context)
 
     resp = client.messages.create(
         model=EMAIL_MODEL,
@@ -426,7 +437,7 @@ def _generate_outreach(client, lead: dict, proof_pack_url=None) -> dict:
         return {}
 
 
-def generate_for_lead(lead: dict, proof_pack_url=None) -> dict:
+def generate_for_lead(lead: dict, proof_pack_url=None, context=None) -> dict:
     """
     Generate WhatsApp + a 3-email drip (Day 0/3/7) for a single lead using Sonnet.
     Returns dict with keys:
@@ -443,7 +454,7 @@ def generate_for_lead(lead: dict, proof_pack_url=None) -> dict:
     }
 
     try:
-        raw = _generate_outreach(client, lead, proof_pack_url)
+        raw = _generate_outreach(client, lead, proof_pack_url, context=context)
     except Exception as e:
         print(f"  Outreach generation error for {lead.get('name','')}: {e}")
         return result
@@ -632,8 +643,10 @@ def handle_warm_lead_responded(lead_id: int) -> dict:
     return {"success": True, "proof_url": portal, "emailed": True}
 
 
-def enrich_lead_in_db(lead_id: int) -> dict:
-    """Generate, validate, and save enrichment for a single lead."""
+def enrich_lead_in_db(lead_id: int, context=None, force=False) -> dict:
+    """Generate, validate, and save enrichment for a single lead.
+    context (optional) is free-text from Manikanta, passed through to the prompt.
+    force=True bypasses the already-enriched skip-guard (always regenerate)."""
     conn = get_db()
     lead = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
     conn.close()
@@ -643,8 +656,8 @@ def enrich_lead_in_db(lead_id: int) -> dict:
 
     lead = dict(lead)
 
-    # Skip if already enriched
-    if lead.get("whatsapp_message") and lead.get("email_subject"):
+    # Skip if already enriched — unless force=True (explicit regenerate).
+    if not force and lead.get("whatsapp_message") and lead.get("email_subject"):
         return {"success": True, "skipped": True, "message": "Already enriched"}
 
     print(f"  ✨ Enriching: {lead['name'][:40]}")
@@ -662,7 +675,7 @@ def enrich_lead_in_db(lead_id: int) -> dict:
     result = None
     candidate = None
     for attempt in range(2):
-        candidate = generate_for_lead(lead, proof_pack_url)
+        candidate = generate_for_lead(lead, proof_pack_url, context=context)
         is_valid, reason = validate_enrichment_output(candidate, lead)
         if is_valid:
             result = candidate

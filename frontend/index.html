@@ -1662,8 +1662,18 @@ body {
       </div>
       <button class="btn btn-outline btn-sm" onclick="showLeadMap()" style="margin-top:8px;">🗺 View Map</button>
 
+      <div id="lead-context-wrap" style="display:none;">
+        <div class="section-title">Business Context</div>
+        <textarea id="lead-context-textarea" rows="4"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;resize:vertical;min-height:88px;outline:none;"
+          placeholder="Tell me about this business — where you met them, what they do, what they're interested in..."></textarea>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">Used only to personalise the next ✨ Generate — not saved to the lead.</div>
+      </div>
+
       <div class="section-title">WhatsApp Message</div>
-      <div class="message-box" id="modal-whatsapp">—</div>
+      <textarea id="modal-whatsapp" rows="5"
+        style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;resize:vertical;min-height:96px;outline:none;"
+        placeholder="No message generated yet"></textarea>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
         <button class="btn btn-primary btn-sm" onclick="generateMessage()" id="gen-msg-btn">✨ Generate</button>
         <button class="btn btn-green btn-sm" onclick="sendWhatsApp()" id="wa-send-btn">📱 Send WhatsApp</button>
@@ -1676,9 +1686,15 @@ body {
       <div class="section-title">Email Outreach</div>
       <div>
         <div class="field-label">Subject</div>
-        <div class="field-value" id="modal-email-subject" style="margin-bottom:8px;">—</div>
+        <input type="text" id="modal-email-subject" class="search-input" style="width:100%;margin-bottom:8px;" placeholder="Email subject">
         <div class="field-label">Body</div>
-        <div class="message-box" id="modal-email-body">—</div>
+        <textarea id="modal-email-body" rows="8"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;resize:vertical;min-height:140px;outline:none;"
+          placeholder="No email generated"></textarea>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+        <button class="btn btn-primary btn-sm" onclick="saveLeadContent()" id="save-content-btn">💾 Save Changes</button>
+        <span id="save-content-status" style="font-size:12px;font-weight:600;"></span>
       </div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
         <input class="search-input" id="modal-email-input" placeholder="Their email address..." style="flex:1;min-width:180px;">
@@ -2850,12 +2866,21 @@ function populateLeadModal(lead) {
   safeSet('modal-score', (lead.reviews || 0) + ' reviews · Score ' + (lead.score || 0));
   renderWebsiteField(lead);
   safeSet('modal-address', lead.address);
-  safeSet('modal-whatsapp', lead.whatsapp_message || 'No message generated yet');
+  safeSet('modal-whatsapp', lead.whatsapp_message || '', true);
   safeSet('modal-email-input', lead.email, true);
   safeSet('modal-email-source', lead.email ? (lead.email_source || 'scraped') : '—');
-  safeSet('modal-email-subject', lead.email_subject);
-  safeSet('modal-email-body', lead.email_body || 'No email generated');
+  safeSet('modal-email-subject', lead.email_subject, true);
+  safeSet('modal-email-body', lead.email_body || '', true);
   safeSet('modal-notes', lead.notes, true);
+  // Business Context: only for manual leads or leads with no website (kept
+  // separate from Notes — always cleared on open, never persisted).
+  var ctxWrap = document.getElementById('lead-context-wrap');
+  var ctxTa = document.getElementById('lead-context-textarea');
+  if (ctxWrap && ctxTa) {
+    ctxTa.value = '';
+    var showCtx = (lead.source === 'manual') || !lead.website;
+    ctxWrap.style.display = showCtx ? 'block' : 'none';
+  }
   var st = document.getElementById('modal-status');
   if (st) st.value = lead.status || 'new';
   document.getElementById('lead-modal').classList.add('open');
@@ -2978,7 +3003,7 @@ async function markContacted() {
 }
 
 function copyWhatsApp() {
-  const msg = document.getElementById('modal-whatsapp').textContent;
+  const msg = document.getElementById('modal-whatsapp').value;
   navigator.clipboard.writeText(msg);
   toast('WhatsApp message copied!', '📋');
 }
@@ -3003,7 +3028,7 @@ async function sendWhatsApp() {
     return;
   }
   const phone = lead.phone;
-  const message = document.getElementById('modal-whatsapp').textContent;
+  const message = document.getElementById('modal-whatsapp').value;
 
   if (!phone || phone === '—') {
     toast('No phone number for this lead', '⚠️');
@@ -3089,8 +3114,8 @@ async function sendEmail() {
     toast('Approve the lead before sending outreach', '⚠️');
     return;
   }
-  const subject = document.getElementById('modal-email-subject').textContent;
-  const body = document.getElementById('modal-email-body').textContent;
+  const subject = document.getElementById('modal-email-subject').value;
+  const body = document.getElementById('modal-email-body').value;
   await fetch(`${API}/send-email`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3109,6 +3134,35 @@ async function saveNotes() {
   });
 }
 
+async function saveLeadContent() {
+  if (!currentLeadId) return;
+  const status = document.getElementById('save-content-status');
+  const payload = {
+    email_subject: document.getElementById('modal-email-subject').value || '',
+    email_body: document.getElementById('modal-email-body').value || '',
+    whatsapp_message: document.getElementById('modal-whatsapp').value || ''
+  };
+  try {
+    const r = await fetch(`${API}/leads/${currentLeadId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.success) {
+      status.textContent = 'Saved ✓';
+      status.style.color = 'var(--green)';
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    } else {
+      status.textContent = 'Save failed';
+      status.style.color = '#fc8181';
+    }
+  } catch (e) {
+    status.textContent = 'Save failed';
+    status.style.color = '#fc8181';
+  }
+}
+
 async function generateMessage() {
   if (!currentLeadId) return;
   const btn = document.getElementById('gen-msg-btn');
@@ -3117,14 +3171,18 @@ async function generateMessage() {
   toast('Generating personalized messages with Claude...', '✨');
 
   try {
+    const ctxEl = document.getElementById('lead-context-textarea');
+    const ctxVal = ctxEl ? ctxEl.value.trim() : '';
     const result = await fetch(API + '/enrich-now/' + currentLeadId, {
-      method: 'POST'
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context: ctxVal || null, force: true })
     }).then(r => r.json());
 
-    if (result.success && !result.skipped) {
-      safeSet('modal-whatsapp', result.whatsapp_message || '—');
-      safeSet('modal-email-subject', result.email_subject || '—');
-      safeSet('modal-email-body', result.email_body || '—');
+    if (result.success) {
+      safeSet('modal-whatsapp', result.whatsapp_message || '', true);
+      safeSet('modal-email-subject', result.email_subject || '', true);
+      safeSet('modal-email-body', result.email_body || '', true);
       document.getElementById('modal-status').value = 'pending_review';
       btn.textContent = '✅ Generated!';
       btn.style.background = 'var(--green)';
@@ -3135,10 +3193,6 @@ async function generateMessage() {
         btn.textContent = '✨ Generate';
         btn.style.background = '';
       }, 3000);
-    } else if (result.skipped) {
-      toast('Already has messages — click ✨ Generate again to regenerate', 'ℹ️');
-      btn.disabled = false;
-      btn.textContent = '✨ Regenerate';
     } else {
       toast('Generation failed: ' + (result.error || 'Unknown error'), '❌');
       btn.disabled = false;

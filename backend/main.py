@@ -577,6 +577,9 @@ class LeadUpdate(BaseModel):
     email: Optional[str] = None
     email_source: Optional[str] = None
     phone: Optional[str] = None
+    email_subject: Optional[str] = None
+    email_body: Optional[str] = None
+    whatsapp_message: Optional[str] = None
 
 class ActivityCreate(BaseModel):
     lead_id: int
@@ -2108,10 +2111,19 @@ async def enrich_single(lead_id: int, background_tasks: BackgroundTasks):
     return {"success": True, "message": "Generating message — refresh in 5 seconds"}
 
 @app.post("/api/enrich-now/{lead_id}")
-async def enrich_single_now(lead_id: int):
-    """Generate WhatsApp + email synchronously — returns result immediately"""
+async def enrich_single_now(lead_id: int, request: Request):
+    """Generate WhatsApp + email synchronously — returns result immediately.
+    Optional body {"context": "..."} personalises the prompt (manual leads)."""
     from enrichment import enrich_lead_in_db
-    return enrich_lead_in_db(lead_id)
+    context = None
+    force = False
+    try:
+        body = await request.json()
+        context = (body or {}).get("context")
+        force = bool((body or {}).get("force", False))
+    except Exception:
+        context, force = None, False  # no/!json body — plain enrich, as before
+    return enrich_lead_in_db(lead_id, context=context, force=force)
 
 @app.post("/api/enrich-batch")
 async def enrich_batch_endpoint(background_tasks: BackgroundTasks, limit: int = 50):

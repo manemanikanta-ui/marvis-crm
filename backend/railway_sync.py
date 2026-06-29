@@ -300,15 +300,27 @@ def _run_once() -> None:
         if activities_added > 0:
             _realign_activities_seq(local_conn)
 
-        _sync_inserts(railway_conn, local_conn, "unmatched_replies", "received_at", since)
+        unmatched_added = _sync_inserts(
+            railway_conn, local_conn, "unmatched_replies", "received_at", since
+        )
 
         # LOCAL → RAILWAY: push locally new/changed leads up so the public
         # webhook can match any lead that exists locally.
         leads_pushed = _push_leads_to_railway(railway_conn, local_conn, since)
 
+        # Confirm each table sync actually executed this cycle (debug visibility).
+        logger.info(
+            f"  leads checked, activities checked, unmatched checked, leads pushed "
+            f"(updated={leads_updated} acts={activities_added} "
+            f"unmatched={unmatched_added} pushed={leads_pushed})"
+        )
+
         _set_last_sync(local_conn, cycle_started)
 
-        # Only log when something actually changed (no idle-cycle spam).
+        # ALWAYS log cycle completion, every cycle (not gated on counts).
+        logger.info(f"🔄 Cycle done: {leads_updated} leads, {activities_added} activities")
+
+        # Extra detail only when something actually changed (no idle-cycle spam).
         if leads_updated or activities_added or leads_pushed:
             logger.info(
                 f"🔄 Sync complete: {leads_updated} leads updated, "

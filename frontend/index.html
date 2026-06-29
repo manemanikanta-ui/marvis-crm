@@ -605,6 +605,62 @@ body {
 }
 .toast.show { transform: translateY(0); opacity: 1; }
 
+/* REPLY DETAIL DRAWER */
+.drawer-overlay {
+  position: fixed; inset: 0; background: #000000aa;
+  backdrop-filter: blur(2px); z-index: 400;
+  opacity: 0; pointer-events: none; transition: opacity 0.25s;
+}
+.drawer-overlay.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; height: 100vh;
+  width: 480px; max-width: 94vw;
+  background: var(--surface); border-left: 1px solid var(--border2);
+  z-index: 401; transform: translateX(100%);
+  transition: transform 0.28s ease;
+  box-shadow: -24px 0 60px #00000080;
+  display: flex; flex-direction: column; overflow-y: auto;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-section { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.drawer-label {
+  font-size: 11px; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.8px;
+  font-family: 'DM Mono', monospace; margin-bottom: 8px;
+}
+.drawer-btn {
+  display: block; width: 100%; text-align: left;
+  padding: 11px 14px; border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text); font-size: 13px; font-weight: 500;
+  cursor: pointer; font-family: 'DM Sans', sans-serif;
+  transition: all 0.15s; margin-bottom: 8px;
+}
+.drawer-btn:hover { border-color: var(--accent); color: var(--accent2); }
+.drawer-expand {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px; margin: -2px 0 10px;
+}
+.drawer-input {
+  width: 100%; background: var(--bg);
+  border: 1px solid var(--border2); border-radius: 6px;
+  padding: 9px 11px; color: var(--text); font-size: 13px;
+  font-family: 'DM Sans', sans-serif; outline: none;
+}
+.drawer-input:focus { border-color: var(--accent); }
+.conv-item {
+  padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; margin-bottom: 8px; cursor: pointer;
+  background: rgba(255,255,255,0.02);
+}
+.conv-item:hover { border-color: var(--border2); }
+.conv-full {
+  display: none; margin-top: 8px; font-size: 12px;
+  color: var(--text2); line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+}
+.conv-item.expanded .conv-full { display: block; }
+
 /* IMPORT BANNER */
 .import-banner {
   background: linear-gradient(135deg, #7c6af715, #22d3a510);
@@ -1740,6 +1796,12 @@ body {
   </div>
 </div>
 
+<!-- REPLY DETAIL DRAWER -->
+<div class="drawer-overlay" id="reply-drawer-overlay" onclick="closeReplyDrawer()"></div>
+<div class="drawer" id="reply-drawer" aria-hidden="true">
+  <div id="reply-drawer-body"></div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast">
   <span id="toast-icon">✅</span>
@@ -2309,15 +2371,27 @@ function aEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+// BUG 2: some activity content is stored as a raw metadata string. The real
+// formats are "EMAIL|<to>|<subject>|<body>" and "WA|<phone>|<message>", so we
+// extract by field position (not "last |", which would show the email body):
+//   EMAIL → the subject (3rd field)   ·   WA → the message (everything after phone)
+// Display-only — the stored DB value is left untouched.
+function cleanActivityContent(s) {
+  s = String(s == null ? '' : s);
+  const parts = s.split('|');
+  if (parts[0] === 'EMAIL') return (parts[2] || parts.slice(1).join('|')).trim();
+  if (parts[0] === 'WA')    return parts.slice(2).join('|').trim();
+  return s;
+}
 function aEmpty(t) { return '<div class="empty-state"><div class="empty-title">' + aEsc(t) + '</div></div>'; }
 function aCard(label, val) {
   return '<div class="analytics-card"><div class="analytics-label">' + aEsc(label)
     + '</div><div class="analytics-value">' + val + '</div></div>';
 }
-function aTable(headers, rows) {
+function aTable(headers, rows, rowAttrsFn) {
   return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
     + '<thead><tr>' + headers.map(h => '<th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text3);font-weight:600;white-space:nowrap;">' + aEsc(h) + '</th>').join('') + '</tr></thead>'
-    + '<tbody>' + rows.map(cells => '<tr>' + cells.map(c => '<td style="padding:8px;border-bottom:1px solid var(--border);vertical-align:top;">' + c + '</td>').join('') + '</tr>').join('') + '</tbody>'
+    + '<tbody>' + rows.map((cells, i) => '<tr ' + (rowAttrsFn ? rowAttrsFn(i) : '') + '>' + cells.map(c => '<td style="padding:8px;border-bottom:1px solid var(--border);vertical-align:top;">' + c + '</td>').join('') + '</tr>').join('') + '</tbody>'
     + '</table></div>';
 }
 function aStatusBadge(s) {
@@ -2337,14 +2411,17 @@ function aClassBadge(c) {
 function loadAnalytics() {
   loadAnalyticsSummary();
   loadAnalyticsTable('emails',   ['Lead', 'Email', 'Subject', 'Date', 'Status'],
-    r => [aEsc(r.lead_name || '—'), aEsc(r.lead_email || '—'), aEsc(r.content || '—'),
-          formatDate(r.sent_at || r.created_at), aStatusBadge(r.status)]);
+    r => [aEsc(r.lead_name || '—'), aEsc(r.lead_email || '—'), aEsc(cleanActivityContent(r.content) || '—'),
+          formatDate(r.sent_at || r.created_at), aStatusBadge(r.status)],
+    r => (r.direction || 'outbound') === 'outbound');   // Emails Sent = outbound only
   loadAnalyticsTable('whatsapp', ['Lead', 'Phone', 'Message', 'Date', 'Status'],
-    r => [aEsc(r.lead_name || '—'), aEsc(r.lead_phone || '—'), aEsc((r.content || '—').slice(0, 80)),
+    r => [aEsc(r.lead_name || '—'), aEsc(r.lead_phone || '—'), aEsc(cleanActivityContent(r.content).slice(0, 80) || '—'),
           formatDate(r.sent_at || r.created_at), aStatusBadge(r.status)]);
   loadAnalyticsTable('replies',  ['Lead', 'Reply', 'Channel', 'Date', 'Classification'],
-    r => [aEsc(r.lead_name || '—'), aEsc((r.content || '—').slice(0, 80)), aEsc(r.channel || '—'),
-          formatDate(r.created_at), aClassBadge(r.classification)]);
+    r => [aEsc(r.lead_name || '—'), aEsc(cleanActivityContent(r.content).slice(0, 80) || '—'), aEsc(r.channel || '—'),
+          formatDate(r.created_at), aClassBadge(r.classification)],
+    r => r.direction === 'inbound',                     // Replies = inbound only
+    (row, i) => 'onclick="openReplyDrawer(' + i + ')" style="cursor:pointer;" onmouseover="this.style.background=\'var(--surface2)\'" onmouseout="this.style.background=\'\'"');
   loadAnalyticsLeadCards('interested', 'interested');
   loadAnalyticsLeadCards('booked', 'booked');
 }
@@ -2360,14 +2437,18 @@ async function loadAnalyticsSummary() {
   } catch (e) { /* leave placeholders */ }
 }
 
-async function loadAnalyticsTable(key, headers, mapRow) {
+async function loadAnalyticsTable(key, headers, mapRow, rowFilter, rowAttrs) {
   const body = document.getElementById(`analytics-${key}-body`);
   const count = document.getElementById(`analytics-${key}-count`);
   try {
     const rows = await fetch(`${API}/analytics/${key}?limit=100`).then(r => r.json());
-    const list = Array.isArray(rows) ? rows : [];
+    let list = Array.isArray(rows) ? rows : [];
+    if (typeof rowFilter === 'function') list = list.filter(rowFilter);
+    // Keep the rendered list addressable so a row click can open its detail.
+    (window._analyticsRows = window._analyticsRows || {})[key] = list;
     if (count) count.textContent = '(' + list.length + ')';
-    body.innerHTML = list.length ? aTable(headers, list.map(mapRow)) : aEmpty('Nothing here yet');
+    const attrFn = typeof rowAttrs === 'function' ? (i => rowAttrs(list[i], i)) : null;
+    body.innerHTML = list.length ? aTable(headers, list.map(mapRow), attrFn) : aEmpty('Nothing here yet');
   } catch (e) {
     body.innerHTML = aEmpty('Failed to load');
   }
@@ -3215,6 +3296,258 @@ async function deleteLead() {
 
 function quickContact(id) {
   openLead(id);
+}
+
+// ─────────────────────────────────────────────
+// REPLY DETAIL DRAWER (Analytics → Replies row click)
+// ─────────────────────────────────────────────
+let _drawerLead = null;
+let _drawerReply = null;
+
+const _convIcons = {
+  email: '📧', email_reply: '💬', reply: '💬', whatsapp: '📱', wa_reply: '📱',
+  whatsapp_reply: '📱', status_change: '🔄', enrichment: '✅', ai_reply: '🤖',
+  followup_scheduled: '🔔', proof_followup: '📎'
+};
+
+function _todayISO() { return new Date().toISOString().slice(0, 10); }
+
+function _replyMeta(reply) {
+  try { return JSON.parse(reply.metadata_json || '{}') || {}; } catch (e) { return {}; }
+}
+
+function drawerToggle(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function closeReplyDrawer() {
+  document.getElementById('reply-drawer-overlay').classList.remove('open');
+  document.getElementById('reply-drawer').classList.remove('open');
+  _drawerLead = null; _drawerReply = null;
+}
+
+async function openReplyDrawer(index) {
+  const rows = (window._analyticsRows && window._analyticsRows.replies) || [];
+  const reply = rows[index];
+  if (!reply) return;
+  _drawerReply = reply;
+  document.getElementById('reply-drawer-overlay').classList.add('open');
+  document.getElementById('reply-drawer').classList.add('open');
+  document.getElementById('reply-drawer-body').innerHTML =
+    '<div class="loading"><div class="spinner"></div>Loading…</div>';
+  try {
+    const lead = await fetch(`${API}/leads/${reply.lead_id}`).then(r => r.json());
+    _drawerLead = lead;
+    renderReplyDrawer(lead, reply, _replyMeta(reply));
+    loadDrawerConversation(reply.lead_id);
+  } catch (e) {
+    document.getElementById('reply-drawer-body').innerHTML =
+      '<div class="empty-state"><div class="empty-title">Failed to load lead</div></div>';
+  }
+}
+
+function renderReplyDrawer(lead, reply, meta) {
+  const subject = meta.subject || '';
+  const sender = meta.sender || lead.email || '';
+  const channel = reply.channel || 'email';
+  const status = lead.status || 'new';
+  const replyText = cleanActivityContent(reply.content || '');
+  document.getElementById('reply-drawer-body').innerHTML = [
+    // HEADER
+    '<div class="drawer-section" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">',
+      '<div style="min-width:0;">',
+        '<div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;">' + aEsc(lead.name || '—') + '</div>',
+        '<div style="font-size:12px;color:var(--text2);margin-top:3px;">' + aEsc(lead.business_type || '—') + '</div>',
+        '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">',
+          '<span class="badge badge-' + aEsc(status) + '" id="drawer-status-badge">' + aEsc(status) + '</span>',
+          '<span class="timeline-channel" style="background:var(--surface2);padding:2px 8px;border-radius:10px;border:1px solid var(--border);">' + aEsc(channel) + '</span>',
+          '<span style="font-size:11px;color:var(--text3);font-family:\'DM Mono\',monospace;">' + formatDate(reply.created_at) + '</span>',
+        '</div>',
+      '</div>',
+      '<button class="btn btn-ghost" onclick="closeReplyDrawer()" style="font-size:18px;line-height:1;flex-shrink:0;">✕</button>',
+    '</div>',
+
+    // REPLY CONTENT
+    '<div class="drawer-section">',
+      '<div class="drawer-label">Reply</div>',
+      '<div class="message-box" style="margin-top:0;">' + (aEsc(replyText) || '—') + '</div>',
+      (subject ? '<div style="font-size:12px;color:var(--text3);margin-top:8px;"><strong style="color:var(--text2);">Subject:</strong> ' + aEsc(subject) + '</div>' : ''),
+      (sender ? '<div style="font-size:12px;color:var(--text3);margin-top:4px;"><strong style="color:var(--text2);">From:</strong> ' + aEsc(sender) + '</div>' : ''),
+    '</div>',
+
+    // QUICK INFO
+    '<div class="drawer-section">',
+      '<div class="drawer-label">Lead Quick Info</div>',
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text2);align-items:center;">',
+        '<span>📞 ' + aEsc(lead.phone || '—') + '</span>',
+        '<span>✉ ' + aEsc(lead.email || '—') + '</span>',
+        '<span>📍 ' + aEsc(lead.city || lead.address || '—') + '</span>',
+        '<span style="font-family:\'DM Mono\',monospace;color:var(--accent2);">Score ' + (lead.score || 0) + '</span>',
+      '</div>',
+      '<button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="drawerViewFullLead()">View Full Lead</button>',
+    '</div>',
+
+    // ACTIONS
+    '<div class="drawer-section">',
+      '<div class="drawer-label">Actions</div>',
+
+      '<button class="drawer-btn" onclick="drawerToggle(\'drawer-compose\')">✉ Reply via Email</button>',
+      '<div class="drawer-expand" id="drawer-compose" style="display:none;">',
+        '<div class="drawer-label">To</div>',
+        '<input class="drawer-input" id="drawer-compose-to" readonly value="' + aEsc(sender) + '" style="margin-bottom:8px;">',
+        '<div class="drawer-label">Subject</div>',
+        '<input class="drawer-input" id="drawer-compose-subject" value="' + aEsc('Re: ' + subject) + '" style="margin-bottom:8px;">',
+        '<div class="drawer-label">Body</div>',
+        '<textarea class="drawer-input" id="drawer-compose-body" rows="4" placeholder="Type your reply…" style="margin-bottom:8px;resize:vertical;"></textarea>',
+        '<button class="btn btn-primary btn-sm" onclick="drawerSendReply()">Send</button>',
+      '</div>',
+
+      '<button class="drawer-btn" onclick="drawerSetStatus(\'interested\')">⭐ Mark as Interested</button>',
+
+      '<select class="drawer-input" style="margin-bottom:8px;cursor:pointer;" onchange="if(this.value){drawerSetStatus(this.value);} this.selectedIndex=0;">',
+        '<option value="">↪ Move to Pipeline…</option>',
+        '<option value="interested">Interested</option>',
+        '<option value="booked">Meeting Set</option>',
+        '<option value="proposal_sent">Proposal Sent</option>',
+        '<option value="converted">Closed Won</option>',
+        '<option value="declined">Declined</option>',
+      '</select>',
+
+      '<button class="drawer-btn" onclick="drawerToggle(\'drawer-followup\')">🔔 Schedule Follow-up</button>',
+      '<div class="drawer-expand" id="drawer-followup" style="display:none;">',
+        '<div class="drawer-label">Date</div>',
+        '<input class="drawer-input" type="date" id="drawer-fu-date" min="' + _todayISO() + '" style="margin-bottom:8px;">',
+        '<div class="drawer-label">Note</div>',
+        '<textarea class="drawer-input" id="drawer-fu-note" rows="2" placeholder="Follow-up note…" style="margin-bottom:8px;resize:vertical;"></textarea>',
+        '<button class="btn btn-primary btn-sm" onclick="drawerScheduleFollowup()">Schedule</button>',
+      '</div>',
+
+      '<button class="drawer-btn" onclick="drawerToggle(\'drawer-note\')">📝 Add Note</button>',
+      '<div class="drawer-expand" id="drawer-note" style="display:none;">',
+        '<textarea class="drawer-input" id="drawer-note-text" rows="3" placeholder="Add a note…" style="margin-bottom:8px;resize:vertical;"></textarea>',
+        '<button class="btn btn-primary btn-sm" onclick="drawerSaveNote()">Save Note</button>',
+      '</div>',
+    '</div>',
+
+    // CONVERSATION HISTORY
+    '<div class="drawer-section" style="border-bottom:none;">',
+      '<div class="drawer-label">Conversation History</div>',
+      '<div id="drawer-conversation"><div class="loading"><div class="spinner"></div>Loading…</div></div>',
+    '</div>',
+  ].join('');
+}
+
+function drawerViewFullLead() {
+  if (_drawerLead) openLead(_drawerLead.id);
+}
+
+async function drawerSetStatus(status) {
+  if (!status || !_drawerLead) return;
+  try {
+    await fetch(`${API}/leads/${_drawerLead.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    _drawerLead.status = status;
+    const b = document.getElementById('drawer-status-badge');
+    if (b) { b.className = 'badge badge-' + status; b.textContent = status; }
+    toast(status === 'interested' ? 'Lead marked as interested' : 'Status updated', '✅');
+    loadDrawerConversation(_drawerLead.id);
+    if (typeof loadDashboard === 'function') loadDashboard();
+  } catch (e) { toast('Update failed', '❌'); }
+}
+
+async function drawerSendReply() {
+  if (!_drawerLead) return;
+  const to = (document.getElementById('drawer-compose-to').value || '').trim();
+  const subject = (document.getElementById('drawer-compose-subject').value || '').trim();
+  const body = (document.getElementById('drawer-compose-body').value || '').trim();
+  if (!to) { toast('No sender email to reply to', '⚠️'); return; }
+  if (!body) { toast('Write a reply first', '⚠️'); return; }
+  try {
+    const r = await fetch(`${API}/send-email`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_id: _drawerLead.id, to_email: to, subject, body })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.success) {
+      toast('Reply sent', '✉️');
+      document.getElementById('drawer-compose-body').value = '';
+      drawerToggle('drawer-compose');
+      loadDrawerConversation(_drawerLead.id);
+    } else {
+      toast(d.detail || d.error || 'Send failed', '❌');
+    }
+  } catch (e) { toast('Send failed', '❌'); }
+}
+
+async function drawerScheduleFollowup() {
+  if (!_drawerLead) return;
+  const date = document.getElementById('drawer-fu-date').value;
+  const note = (document.getElementById('drawer-fu-note').value || '').trim();
+  if (!date) { toast('Pick a date', '⚠️'); return; }
+  try {
+    const r = await fetch(`${API}/follow-ups`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_id: _drawerLead.id, scheduled_at: date, note })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.success) {
+      toast('Follow-up scheduled', '🔔');
+      document.getElementById('drawer-fu-note').value = '';
+      drawerToggle('drawer-followup');
+    } else { toast('Schedule failed', '❌'); }
+  } catch (e) { toast('Schedule failed', '❌'); }
+}
+
+async function drawerSaveNote() {
+  if (!_drawerLead) return;
+  const text = (document.getElementById('drawer-note-text').value || '').trim();
+  if (!text) { toast('Write a note first', '⚠️'); return; }
+  try {
+    const lead = await fetch(`${API}/leads/${_drawerLead.id}`).then(r => r.json());
+    const stamp = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
+    const appended = (lead.notes ? lead.notes + '\n' : '') + '[' + stamp + '] ' + text;
+    await fetch(`${API}/leads/${_drawerLead.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: appended })
+    });
+    _drawerLead.notes = appended;
+    toast('Note saved', '📝');
+    document.getElementById('drawer-note-text').value = '';
+    drawerToggle('drawer-note');
+    loadDrawerConversation(_drawerLead.id);
+  } catch (e) { toast('Save failed', '❌'); }
+}
+
+async function loadDrawerConversation(leadId) {
+  const el = document.getElementById('drawer-conversation');
+  if (!el) return;
+  try {
+    const res = await fetch(`${API}/lead-timeline/${leadId}`).then(r => r.json());
+    const items = (res.timeline || []).slice().reverse();  // newest first
+    if (!items.length) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px;">No activity yet</div>';
+      return;
+    }
+    el.innerHTML = items.map(it => {
+      const type = it.type || 'activity';
+      const icon = _convIcons[type] || it.icon || '•';
+      const full = cleanActivityContent(it.content || it.preview || '');
+      const preview = String(full).slice(0, 50);
+      const more = String(full).length > 50 ? '…' : '';
+      return '<div class="conv-item" onclick="this.classList.toggle(\'expanded\')">'
+        + '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;">'
+        + '<div style="font-size:12px;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + icon + ' ' + aEsc(preview) + more + '</div>'
+        + '<div style="font-size:10.5px;color:var(--text3);font-family:\'DM Mono\',monospace;flex-shrink:0;">' + formatDate(it.created_at) + '</div>'
+        + '</div>'
+        + '<div class="conv-full">' + (aEsc(full) || '—') + '</div>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px;">Failed to load history</div>';
+  }
 }
 
 // ─────────────────────────────────────────────

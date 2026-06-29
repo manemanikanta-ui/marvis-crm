@@ -620,6 +620,11 @@ class LeadScrapeRequest(BaseModel):
 class BulkIds(BaseModel):
     lead_ids: List[int]
 
+class FollowUpCreate(BaseModel):
+    lead_id: int
+    scheduled_at: str
+    note: str
+
 # Google Places region bias per country (no hardcoded fallbacks beyond a sane default)
 COUNTRY_REGION_MAP = {
     "India": "in",
@@ -1182,6 +1187,21 @@ Would that be helpful? — Manikanta | Talktiv AI"""
     conn.close()
     return {"success": True, "scheduled_at": scheduled, "message": followup_msg}
 
+
+@app.post("/api/follow-ups")
+async def create_follow_up(req: FollowUpCreate):
+    """Create a follow-up from the Reply Detail drawer: stores the user's note as
+    the follow-up message at the chosen date, status 'pending'."""
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO follow_ups (lead_id, message, scheduled_at, status) VALUES (?, ?, ?, 'pending')",
+        (req.lead_id, req.note, req.scheduled_at),
+    )
+    new_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return {"success": True, "id": new_id}
+
 # ─────────────────────────────────────────────
 # DASHBOARD STATS
 # ─────────────────────────────────────────────
@@ -1500,14 +1520,17 @@ async def campaign_stats():
 
 @app.get("/api/analytics/emails")
 async def analytics_emails(limit: int = 100):
-    """Return email activity log."""
+    """Return OUTBOUND email activity only (sent emails — never inbound replies).
+    direction defaults to 'outbound', so this keeps every sent row and excludes
+    inbound email_reply rows that share channel='email'."""
     conn = get_db()
     rows = conn.execute("""
         SELECT a.*, l.name AS lead_name, l.email AS lead_email
         FROM activities a
         LEFT JOIN leads l ON a.lead_id = l.id
-        WHERE a.channel = 'email'
-           OR a.type IN ('email', 'email_sent', 'sequence_email', 'followup_scheduled')
+        WHERE (a.channel = 'email'
+               OR a.type IN ('email', 'email_sent', 'sequence_email', 'followup_scheduled'))
+          AND a.direction = 'outbound'
         ORDER BY a.created_at DESC
         LIMIT ?
     """, (limit,)).fetchall()
@@ -1534,7 +1557,9 @@ async def analytics_whatsapp(limit: int = 100):
 
 @app.get("/api/analytics/replies")
 async def analytics_replies(limit: int = 100):
-    """Return inbound replies."""
+    """Return INBOUND replies only. All real replies (Gmail + WhatsApp) are logged
+    with direction='inbound', so the strict filter guarantees no outbound row leaks
+    in (the old type-OR could match an outbound row sharing a reply-ish type)."""
     conn = get_db()
     rows = conn.execute("""
         SELECT a.*, l.name AS lead_name, l.phone AS lead_phone,
@@ -1542,7 +1567,6 @@ async def analytics_replies(limit: int = 100):
         FROM activities a
         LEFT JOIN leads l ON a.lead_id = l.id
         WHERE a.direction = 'inbound'
-           OR a.type IN ('reply', 'inbound', 'wa_reply', 'whatsapp_reply', 'email_reply')
         ORDER BY a.created_at DESC
         LIMIT ?
     """, (limit,)).fetchall()

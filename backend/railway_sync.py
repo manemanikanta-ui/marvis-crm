@@ -158,6 +158,81 @@ def _sync_inserts(railway_conn, local_conn, table: str, time_col: str,
     return added
 
 
+# Columns copied when pulling an inbound activity from Railway. `id` is
+# deliberately omitted: both DBs mint activity ids from the same sequence, so an
+# id-based INSERT ... ON CONFLICT (id) silently drops a Railway row whose id is
+# already used by a *different* local row. Local assigns a fresh id instead, and
+# we dedup on the natural key (lead_id, type, direction, created_at).
+_ACTIVITY_SYNC_COLUMNS = [
+    "lead_id", "type", "channel", "content", "status",
+    "scheduled_at", "sent_at", "response", "direction",
+    "metadata_json", "campaign_name", "classification", "created_at",
+]
+_ACTIVITY_NATURAL_KEY = ("lead_id", "type", "direction", "created_at")
+
+
+def _sync_activities(railway_conn, local_conn, since) -> int:
+    """Pull new inbound activities from Railway, deduped on the natural key
+    (lead_id, type, direction, created_at) rather than id. since=None pulls ALL
+    inbound rows (one-time backfill); otherwise only those newer than the cursor.
+    Only columns present in BOTH databases are copied (schema-drift safe)."""
+    common = set(_columns(railway_conn, "activities")) & set(_columns(local_conn, "activities"))
+    cols = [c for c in _ACTIVITY_SYNC_COLUMNS if c in common]
+    if not set(_ACTIVITY_NATURAL_KEY) <= set(cols):
+        return 0
+    col_list = ", ".join(f'"{c}"' for c in cols)
+
+    where = "direction = 'inbound'"
+    params: tuple = ()
+    if since is not None:
+        where += " AND NULLIF(created_at, '')::timestamptz > %s"
+        params = (since,)
+
+    with railway_conn.cursor() as cur:
+        cur.execute(f"SELECT {col_list} FROM activities WHERE {where}", params)
+        rows = cur.fetchall()
+    if not rows:
+        return 0
+
+    ix = {c: cols.index(c) for c in _ACTIVITY_NATURAL_KEY}
+    placeholders = ", ".join(["%s"] * len(cols))
+    insert_sql = f"INSERT INTO activities ({col_list}) VALUES ({placeholders})"
+
+    added = 0
+    with local_conn.cursor() as cur:
+        for row in rows:
+            # Natural-key existence check — skip rows already synced (any id).
+            cur.execute(
+                "SELECT 1 FROM activities "
+                "WHERE lead_id = %s AND type = %s AND direction = %s "
+                "AND NULLIF(created_at, '')::timestamptz = %s::timestamptz LIMIT 1",
+                (row[ix["lead_id"]], row[ix["type"]], row[ix["direction"]], row[ix["created_at"]]),
+            )
+            if cur.fetchone():
+                continue
+            cur.execute(insert_sql, row)  # no id → local sequence assigns a fresh one
+            added += 1
+    local_conn.commit()
+    return added
+
+
+def _backfill_inbound_activities() -> None:
+    """One-time startup catch-up: pull EVERY Railway inbound activity (no time
+    filter) and insert any missing locally via the natural-key dedup. Recovers
+    rows the old id-based sync silently dropped before this fix existed."""
+    railway_conn = _connect(os.getenv("RAILWAY_SYNC_URL"))
+    local_conn = _connect(os.getenv("DATABASE_URL"))
+    try:
+        added = _sync_activities(railway_conn, local_conn, since=None)
+        logger.info(f"🔄 Backfill: added {added} missing inbound activities")
+    finally:
+        for c in (railway_conn, local_conn):
+            try:
+                c.close()
+            except Exception:
+                pass
+
+
 def _realign_activities_seq(local_conn) -> None:
     """Push activities_id_seq past every synced Railway id so local SERIAL inserts
     (which use nextval) never collide with an explicitly-synced id."""
@@ -291,14 +366,10 @@ def _run_once() -> None:
         logger.info(f"Sync cursor: UTC={since.isoformat()} IST={since.astimezone(IST).isoformat()}")
 
         leads_updated = _sync_leads(railway_conn, local_conn, since)
-        activities_added = _sync_inserts(
-            railway_conn, local_conn, "activities", "created_at", since,
-            where_extra="direction = 'inbound'",
-        )
-        # Keep the local sequence ahead of all synced Railway ids so future
-        # local inserts (nextval-based) never hit a duplicate-key collision.
-        if activities_added > 0:
-            _realign_activities_seq(local_conn)
+        # Activities use natural-key dedup (not id): both DBs mint activity ids
+        # from the same sequence, so id-based conflict detection silently drops
+        # Railway's inbound rows. No explicit id is inserted, so no seq realign.
+        activities_added = _sync_activities(railway_conn, local_conn, since)
 
         unmatched_added = _sync_inserts(
             railway_conn, local_conn, "unmatched_replies", "received_at", since
@@ -341,6 +412,12 @@ def _loop() -> None:
         _initial_full_sync()
     except Exception as e:
         logger.warning(f"⚠️ Initial full sync failed: {e}")
+
+    # One-time catch-up for inbound activities the old id-based sync dropped.
+    try:
+        _backfill_inbound_activities()
+    except Exception as e:
+        logger.warning(f"⚠️ Inbound activity backfill failed: {e}")
 
     while True:
         time.sleep(SYNC_INTERVAL_SECONDS)

@@ -2959,8 +2959,7 @@ function populateLeadModal(lead) {
   var ctxTa = document.getElementById('lead-context-textarea');
   if (ctxWrap && ctxTa) {
     ctxTa.value = '';
-    var showCtx = (lead.source === 'manual') || !lead.website;
-    ctxWrap.style.display = showCtx ? 'block' : 'none';
+    ctxWrap.style.display = 'block';   // CHANGE 4: context helps all leads — always show
   }
   var st = document.getElementById('modal-status');
   if (st) st.value = lead.status || 'new';

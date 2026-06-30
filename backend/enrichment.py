@@ -295,16 +295,18 @@ def build_outreach_prompt(lead: dict, proof_pack_url=None, context=None) -> str:
     cat_forbidden = ", ".join(profile.get("forbidden", [])) or "none"
     global_forbidden = ", ".join(GLOBAL_FORBIDDEN)
 
-    # Optional free-text context from Manikanta (manual leads). Prepended before
-    # the category-voice section so it personalises tone without changing the rules.
+    # Optional free-text context from Manikanta. Placed at the very START of the
+    # prompt (before everything else) so Claude anchors the whole outreach on it.
     context_block = ""
     if context and str(context).strip():
         context_block = (
-            f"Additional context from Manikanta: {str(context).strip()}\n"
-            "Use this to personalise the outreach email and WhatsApp message.\n\n"
+            "IMPORTANT CONTEXT FROM MANIKANTA:\n"
+            f"{str(context).strip()}\n\n"
+            "Use this context to make the outreach highly specific to this business. "
+            "Reference details from this context naturally in the message.\n\n"
         )
 
-    return f"""You are Manikanta Mane, founder of Talktiv AI, writing to a business owner.
+    return f"""{context_block}You are Manikanta Mane, founder of Talktiv AI, writing to a business owner.
 The messages are FROM you TO them. Never address Manikanta. Never invent facts.
 
 LEAD
@@ -318,7 +320,7 @@ Has a website: {has_website}
 Their likely pain: {pain}
 Lead score: {score}
 
-{context_block}VOICE FOR THIS CATEGORY (tone: {profile['tone']})
+VOICE FOR THIS CATEGORY (tone: {profile['tone']})
 Core pain to lean on: {profile['hook']}
 Credibility line you may adapt: {profile['trust_line']}
 Style: {profile['style_notes']}

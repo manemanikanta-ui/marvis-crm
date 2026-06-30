@@ -280,6 +280,23 @@ def _save_job_run_map(run_map: Dict[str, str]):
     _set_setting("scheduler_job_last_run", json.dumps(run_map, ensure_ascii=False))
 
 
+def _bump_consecutive_skips() -> int:
+    """Increment and return the count of consecutive 'skipped' runs (used to
+    stay quiet on routine skips but alert once if it persists)."""
+    try:
+        n = int(_settings_dict().get("scheduler_consecutive_skips", "0") or 0)
+    except Exception:
+        n = 0
+    n += 1
+    _set_setting("scheduler_consecutive_skips", n)
+    return n
+
+
+def _reset_consecutive_skips():
+    if str(_settings_dict().get("scheduler_consecutive_skips", "0") or "0") != "0":
+        _set_setting("scheduler_consecutive_skips", 0)
+
+
 def _compute_next_job_run(
     job: Dict[str, Any],
     reference: Optional[datetime] = None,
@@ -330,12 +347,20 @@ def _compute_next_run(run_time: str, reference: Optional[datetime] = None) -> da
     return candidate
 
 
+class LeadMachineUnavailable(Exception):
+    """The MARVIS_LEAD_MACHINE scrape/enrich modules can't be imported in this
+    environment (e.g. Railway, where that separate project isn't deployed)."""
+
+
 def _load_lead_machine_modules():
     if str(LEAD_MACHINE_DIR) not in sys.path:
         sys.path.insert(0, str(LEAD_MACHINE_DIR))
 
-    from scraper import filter_and_rank, save_results, scrape_leads  # type: ignore
-    from enrich import enrich_leads  # type: ignore
+    try:
+        from scraper import filter_and_rank, save_results, scrape_leads  # type: ignore
+        from enrich import enrich_leads  # type: ignore
+    except ImportError as exc:
+        raise LeadMachineUnavailable(str(exc)) from exc
 
     return scrape_leads, filter_and_rank, save_results, enrich_leads
 
@@ -762,6 +787,11 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
     run_map = _load_job_run_map()
 
     try:
+        # Pre-flight: skip the whole run cleanly if the scrape/enrich modules
+        # aren't importable here (MARVIS_LEAD_MACHINE isn't deployed on Railway).
+        # Raises LeadMachineUnavailable → handled below as "skipped", not a failure.
+        _load_lead_machine_modules()
+
         for job in jobs:
             normalized = _normalize_job(job)
             try:
@@ -797,6 +827,12 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
         _save_job_run_map(run_map)
         if details.get("job_errors"):
             status = "partial_failure"
+    except LeadMachineUnavailable as exc:
+        # Expected on environments without the lead machine (e.g. Railway) —
+        # not a failure; exit cleanly and stay silent (see skip handling below).
+        status = "skipped"
+        details["skip_reason"] = f"lead-machine modules unavailable: {exc}"
+        _logger.info("Scheduler skipped — lead-machine modules not available in this environment")
     except Exception as exc:
         status = "failed"
         details["error"] = str(exc)
@@ -814,23 +850,38 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
     _record_run(started_at, finished_at, status, overall, details, trigger_type)
     _write_run_log({"status": status, "summary": overall, "details": details})
 
-    # Telegram summary once the run is fully logged.
-    try:
-        from telegram_notify import notify
-        notify(
-            f"📅 <b>Scheduler Complete</b>\n"
-            f"Status: {status}\n"
-            f"Leads found: {overall.get('new_leads', 0)}\n"
-            f"Emails sent: {overall.get('emails_sent', 0)}\n"
-            f"Failed: {overall.get('emails_failed', 0)}"
-        )
-    except Exception:
-        pass
+    # A clean "skipped" run (lead-machine unavailable) stays silent — no Telegram,
+    # no HUD failure event — unless it persists (alert once at 3 consecutive skips).
+    if status == "skipped":
+        skips = _bump_consecutive_skips()
+        if skips == 3:
+            try:
+                from telegram_notify import notify
+                notify(
+                    f"⚠️ <b>Scheduler skipped</b>\n"
+                    f"{skips} consecutive skips — lead-machine modules not available in this environment."
+                )
+            except Exception:
+                pass
+    else:
+        _reset_consecutive_skips()
+        # Telegram summary once the run is fully logged.
+        try:
+            from telegram_notify import notify
+            notify(
+                f"📅 <b>Scheduler Complete</b>\n"
+                f"Status: {status}\n"
+                f"Leads found: {overall.get('new_leads', 0)}\n"
+                f"Emails sent: {overall.get('emails_sent', 0)}\n"
+                f"Failed: {overall.get('emails_failed', 0)}"
+            )
+        except Exception:
+            pass
 
-    if status == "success":
-        emit_hud_event("scheduler_complete", {"jobs": len(jobs), "leads_found": overall.get("new_leads", 0)})
-    elif status in {"failed", "partial_failure"}:
-        emit_hud_event("scheduler_failed", {"error": details.get("error") or "Scheduler run failed"})
+        if status == "success":
+            emit_hud_event("scheduler_complete", {"jobs": len(jobs), "leads_found": overall.get("new_leads", 0)})
+        elif status in {"failed", "partial_failure"}:
+            emit_hud_event("scheduler_failed", {"error": details.get("error") or "Scheduler run failed"})
 
     return {"success": status == "success", "status": status, "summary": overall, "details": details}
 

@@ -209,7 +209,8 @@ def build_outreach_prompt(lead: dict, proof_pack_url=None, context=None) -> str:
     """Category-aware outreach prompt. Resolves the lead's CATEGORY_PROFILES voice,
     applies the global + per-category hard rules, and produces a WhatsApp message
     plus a 3-email drip (Day 0 / 3 / 7). Returns JSON {whatsapp, emails:[...]}.
-    proof_pack_url (Tier-1 hot leads) is woven into Email 1 when present.
+    proof_pack_url is accepted for compatibility but no longer woven into Email 1
+    (the /proof link 404s in outreach — see note below; re-add once verified).
     context (optional free text from Manikanta) is prepended to personalise the
     outreach — used for manual leads where Claude has no scraped signals."""
     name = lead.get('name', 'your business')
@@ -275,18 +276,10 @@ def build_outreach_prompt(lead: dict, proof_pack_url=None, context=None) -> str:
         facts.append(f"a {category}")
     fact_hint = "; ".join(facts) if facts else "only what is listed above — invent nothing"
 
-    # Two-tier proof-pack handling for Email 1 (see THING 3).
-    if score >= 75 and proof_pack_url:
-        proof_instruction = (
-            "This is a high-priority lead. Add ONE natural line offering a ready "
-            f"preview link (bare URL, no angle brackets): {proof_pack_url}"
-        )
-    else:
-        proof_instruction = (
-            "Add ONE natural line that mentions sample assets exist WITHOUT any link, "
-            f'phrased like: "I\'ve drafted a quick Google Business write-up and email '
-            f'sequence for {name} — happy to send it over if you want a look."'
-        )
+    # Proof-pack preview link removed from Email 1: the /proof/{code} URL 404s in
+    # outreach because packs aren't on the public Railway DB. The talktivai.com
+    # trust signal stays. Re-add the link here once the proof portal is verified.
+    # (proof_pack_url is still accepted for compatibility but no longer used.)
 
     no_excl_rule = (
         "\n- This category is healthcare: NEVER use an exclamation mark anywhere."
@@ -349,7 +342,6 @@ EMAIL 1 — Day 0 (cold outreach), tone = {profile['tone']}:
 - One genuine yes/no question about their current process (not rhetorical).
 - The single mid-email talktivai.com verification mention.
 - No ask, no CTA button, no link other than talktivai.com.
-- {proof_instruction}
 
 EMAIL 2 — Day 3 (no-reply follow-up):
 - Very short: at most 2 short body lines, then the signature.
@@ -621,10 +613,13 @@ def handle_warm_lead_responded(lead_id: int) -> dict:
         return {"success": True, "proof_url": portal, "emailed": False, "reason": "no email on lead"}
 
     name = lead.get("name", "")
-    subject = f"{name} — the assets I mentioned"
+    subject = f"{name} — the samples I mentioned"
+    # Proof-pack link withheld until the /proof portal is verified working — the
+    # pack is still generated above; we just don't email the (currently 404ing) URL.
     body = (
-        f"Here are those sample assets I mentioned for {name} — {portal}\n\n"
-        "Let me know what you think of the tone.\n\n"
+        f"Thanks for getting back to me about {name}.\n\n"
+        "I've put together a few sample assets — a Google Business write-up, an "
+        "email sequence, and some social captions — and I'll send them across shortly.\n\n"
         f"{SIGNATURE}"
     )
     try:
@@ -638,7 +633,7 @@ def handle_warm_lead_responded(lead_id: int) -> dict:
 
     log_activity_event(
         lead_id, "proof_followup", "email",
-        f"Sent proof assets after reply: {portal}",
+        "Sent warm-reply follow-up (proof pack generated; link withheld until verified)",
         status="sent", direction="outbound",
         metadata={"source": "warm_responded", "proof_url": portal},
     )

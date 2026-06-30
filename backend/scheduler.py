@@ -280,23 +280,6 @@ def _save_job_run_map(run_map: Dict[str, str]):
     _set_setting("scheduler_job_last_run", json.dumps(run_map, ensure_ascii=False))
 
 
-def _bump_consecutive_skips() -> int:
-    """Increment and return the count of consecutive 'skipped' runs (used to
-    stay quiet on routine skips but alert once if it persists)."""
-    try:
-        n = int(_settings_dict().get("scheduler_consecutive_skips", "0") or 0)
-    except Exception:
-        n = 0
-    n += 1
-    _set_setting("scheduler_consecutive_skips", n)
-    return n
-
-
-def _reset_consecutive_skips():
-    if str(_settings_dict().get("scheduler_consecutive_skips", "0") or "0") != "0":
-        _set_setting("scheduler_consecutive_skips", 0)
-
-
 def _compute_next_job_run(
     job: Dict[str, Any],
     reference: Optional[datetime] = None,
@@ -787,37 +770,46 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
     run_map = _load_job_run_map()
 
     try:
-        # Pre-flight: skip the whole run cleanly if the scrape/enrich modules
-        # aren't importable here (MARVIS_LEAD_MACHINE isn't deployed on Railway).
-        # Raises LeadMachineUnavailable → handled below as "skipped", not a failure.
-        _load_lead_machine_modules()
+        # Scrape/enrich needs MARVIS_LEAD_MACHINE (not deployed on Railway). If it
+        # can't import, skip ONLY scraping/enrichment — follow-up sending below
+        # does NOT depend on it and must still run for existing leads.
+        lead_machine_ok = True
+        try:
+            _load_lead_machine_modules()
+        except LeadMachineUnavailable as exc:
+            lead_machine_ok = False
+            details["skip_reason"] = f"lead-machine modules unavailable: {exc}"
+            _logger.info("Scraping/enrichment skipped — lead-machine unavailable")
 
-        for job in jobs:
-            normalized = _normalize_job(job)
-            try:
-                result = _run_single_job(normalized, trigger_type, started_at)
-                job_summary = result["summary"]
-                details["jobs"].append(result["details"])
-                overall["jobs_completed"] += 1
-                overall["scraped"] += job_summary["scraped"]
-                overall["imported"] += job_summary["imported"]
-                overall["skipped"] += job_summary["skipped"]
-                overall["new_leads"] += job_summary["new_leads"]
-                overall["emails_sent"] += job_summary["emails_sent"]
-                overall["emails_failed"] += job_summary["emails_failed"]
-                run_map[_job_key(normalized)] = started_at.astimezone(IST).date().isoformat()
-            except Exception as job_exc:
-                status = "partial_failure"
-                job_error = {
-                    "job": normalized,
-                    "error": str(job_exc),
-                    "traceback": traceback.format_exc(),
-                }
-                details.setdefault("job_errors", []).append(job_error)
-                overall.setdefault("job_failures", 0)
-                overall["job_failures"] += 1
-                _logger.error("Scheduler job failed: %s", job_exc)
+        if lead_machine_ok:
+            for job in jobs:
+                normalized = _normalize_job(job)
+                try:
+                    result = _run_single_job(normalized, trigger_type, started_at)
+                    job_summary = result["summary"]
+                    details["jobs"].append(result["details"])
+                    overall["jobs_completed"] += 1
+                    overall["scraped"] += job_summary["scraped"]
+                    overall["imported"] += job_summary["imported"]
+                    overall["skipped"] += job_summary["skipped"]
+                    overall["new_leads"] += job_summary["new_leads"]
+                    overall["emails_sent"] += job_summary["emails_sent"]
+                    overall["emails_failed"] += job_summary["emails_failed"]
+                    run_map[_job_key(normalized)] = started_at.astimezone(IST).date().isoformat()
+                except Exception as job_exc:
+                    status = "partial_failure"
+                    job_error = {
+                        "job": normalized,
+                        "error": str(job_exc),
+                        "traceback": traceback.format_exc(),
+                    }
+                    details.setdefault("job_errors", []).append(job_error)
+                    overall.setdefault("job_failures", 0)
+                    overall["job_failures"] += 1
+                    _logger.error("Scheduler job failed: %s", job_exc)
 
+        # Follow-up sending is independent of the lead machine — always run it,
+        # even when scraping/enrichment was skipped (the priority on Railway).
         followup_result = _process_due_followups() if include_followups else {"processed": 0, "sent": 0, "failed": 0, "skipped": 0}
         overall["followups_processed"] = followup_result["processed"]
         overall["followups_sent"] = followup_result["sent"]
@@ -825,14 +817,13 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
         overall["followups_skipped"] = followup_result["skipped"]
         details["followup_result"] = followup_result
         _save_job_run_map(run_map)
-        if details.get("job_errors"):
+
+        if not lead_machine_ok:
+            # Scraping/enrichment skipped, but follow-ups still ran — distinct
+            # from both "skipped" (nothing ran) and "partial_failure" (a job threw).
+            status = "partial_skip"
+        elif details.get("job_errors"):
             status = "partial_failure"
-    except LeadMachineUnavailable as exc:
-        # Expected on environments without the lead machine (e.g. Railway) —
-        # not a failure; exit cleanly and stay silent (see skip handling below).
-        status = "skipped"
-        details["skip_reason"] = f"lead-machine modules unavailable: {exc}"
-        _logger.info("Scheduler skipped — lead-machine modules not available in this environment")
     except Exception as exc:
         status = "failed"
         details["error"] = str(exc)
@@ -850,21 +841,24 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
     _record_run(started_at, finished_at, status, overall, details, trigger_type)
     _write_run_log({"status": status, "summary": overall, "details": details})
 
-    # A clean "skipped" run (lead-machine unavailable) stays silent — no Telegram,
-    # no HUD failure event — unless it persists (alert once at 3 consecutive skips).
-    if status == "skipped":
-        skips = _bump_consecutive_skips()
-        if skips == 3:
+    if status == "partial_skip":
+        # Scraping skipped (lead machine unavailable) but follow-ups ran. Only
+        # ping Telegram when follow-ups actually did something — avoids a daily
+        # "scraping skipped" no-op message on Railway where the lead machine is
+        # permanently absent.
+        if overall.get("followups_sent", 0) or overall.get("followups_failed", 0):
             try:
                 from telegram_notify import notify
                 notify(
-                    f"⚠️ <b>Scheduler skipped</b>\n"
-                    f"{skips} consecutive skips — lead-machine modules not available in this environment."
+                    f"📅 <b>Scheduler (follow-ups only)</b>\n"
+                    f"Scraping skipped — lead-machine unavailable\n"
+                    f"Follow-ups sent: {overall.get('followups_sent', 0)}\n"
+                    f"Failed: {overall.get('followups_failed', 0)}"
                 )
             except Exception:
                 pass
+        emit_hud_event("scheduler_complete", {"jobs": 0, "leads_found": 0})
     else:
-        _reset_consecutive_skips()
         # Telegram summary once the run is fully logged.
         try:
             from telegram_notify import notify

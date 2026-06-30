@@ -315,6 +315,62 @@ def _push_leads_to_railway(railway_conn, local_conn, since: str | None,
     return pushed
 
 
+# ── local → Railway proof-pack push ──────────────────────────────────────────
+
+# proof_packs are deduped on `code` (UNIQUE), not id — both DBs mint ids from the
+# same sequence, and Railway owns the live view_count/last_viewed_at (the public
+# portal increments them). So we INSERT WITHOUT id (Railway assigns its own) and
+# ON CONFLICT (code) DO NOTHING — never overwrite Railway's view counts.
+_PROOF_PACK_COLUMNS = [
+    "code", "lead_id", "business_name", "category", "city", "phone", "website",
+    "assets_json", "regen_count", "view_count", "created_at", "expires_at",
+    "last_viewed_at", "status", "converted",
+]
+
+
+def _push_proof_packs_to_railway(railway_conn, local_conn, since: str | None) -> int:
+    """Push locally-created proof packs up to Railway so the public /proof/{code}
+    URL can always resolve them. since=None pushes ALL local packs (one-time full
+    sync); otherwise only those created after the cursor. Schema-drift safe."""
+    common = set(_columns(local_conn, "proof_packs")) & set(_columns(railway_conn, "proof_packs"))
+    cols = [c for c in _PROOF_PACK_COLUMNS if c in common]
+    if "code" not in cols:
+        return 0
+    col_list = ", ".join(f'"{c}"' for c in cols)
+
+    select_sql = f"SELECT {col_list} FROM proof_packs"
+    params: tuple = ()
+    if since is not None:
+        select_sql += " WHERE NULLIF(created_at, '')::timestamptz > %s"
+        params = (since,)
+
+    with local_conn.cursor() as cur:
+        cur.execute(select_sql, params)
+        rows = cur.fetchall()
+    if not rows:
+        return 0
+
+    placeholders = ", ".join(["%s"] * len(cols))
+    insert_sql = (
+        f"INSERT INTO proof_packs ({col_list}) VALUES ({placeholders}) "
+        f"ON CONFLICT (code) DO NOTHING"
+    )
+
+    pushed = 0
+    for row in rows:
+        # Per-row commit so one bad row (e.g. a lead_id FK not yet on Railway)
+        # can't abort the whole batch — that pack simply retries next cycle.
+        try:
+            with railway_conn.cursor() as cur:
+                cur.execute(insert_sql, row)
+                pushed += cur.rowcount
+            railway_conn.commit()
+        except Exception as exc:
+            railway_conn.rollback()
+            logger.warning(f"⚠️ proof pack push skipped one row: {exc}")
+    return pushed
+
+
 def _realign_railway_leads_seq(railway_conn) -> None:
     """Keep Railway's leads_id_seq in the reserved range so Railway-minted leads
     (e.g. the website contact form) never collide with local-origin ids.
@@ -341,6 +397,9 @@ def _initial_full_sync() -> None:
         # Realign Railway leads_id_seq so it never collides with local ids
         # (local uses 1–499999, Railway starts at 500000).
         _realign_railway_leads_seq(railway_conn)
+        # Proof packs after leads (FK lead_id → leads must already be on Railway).
+        packs = _push_proof_packs_to_railway(railway_conn, local_conn, since=None)
+        logger.info(f"🔄 Initial full sync: pushed {packs} proof packs to Railway")
     finally:
         for c in (railway_conn, local_conn):
             try:
@@ -378,12 +437,14 @@ def _run_once() -> None:
         # LOCAL → RAILWAY: push locally new/changed leads up so the public
         # webhook can match any lead that exists locally.
         leads_pushed = _push_leads_to_railway(railway_conn, local_conn, since)
+        # Proof packs after leads (FK lead_id) so the public /proof/{code} resolves.
+        packs_pushed = _push_proof_packs_to_railway(railway_conn, local_conn, since)
 
         # Confirm each table sync actually executed this cycle (debug visibility).
         logger.info(
-            f"  leads checked, activities checked, unmatched checked, leads pushed "
+            f"  leads checked, activities checked, unmatched checked, leads/packs pushed "
             f"(updated={leads_updated} acts={activities_added} "
-            f"unmatched={unmatched_added} pushed={leads_pushed})"
+            f"unmatched={unmatched_added} pushed={leads_pushed} packs={packs_pushed})"
         )
 
         _set_last_sync(local_conn, cycle_started)
@@ -392,10 +453,11 @@ def _run_once() -> None:
         logger.info(f"🔄 Cycle done: {leads_updated} leads, {activities_added} activities")
 
         # Extra detail only when something actually changed (no idle-cycle spam).
-        if leads_updated or activities_added or leads_pushed:
+        if leads_updated or activities_added or leads_pushed or packs_pushed:
             logger.info(
                 f"🔄 Sync complete: {leads_updated} leads updated, "
-                f"{activities_added} activities added, {leads_pushed} leads pushed"
+                f"{activities_added} activities added, {leads_pushed} leads pushed, "
+                f"{packs_pushed} proof packs pushed"
             )
     finally:
         for c in (railway_conn, local_conn):

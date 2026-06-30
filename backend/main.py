@@ -1020,11 +1020,30 @@ async def bulk_enrich_leads(req: BulkIds, background_tasks: BackgroundTasks):
 
     def run():
         from enrichment import enrich_lead_in_db
+        enriched = 0
+        hot = 0
         for lid in ids:
             try:
-                enrich_lead_in_db(lid)
+                # Suppress per-lead hot pings — one summary is sent after the loop.
+                result = enrich_lead_in_db(lid, suppress_individual_notify=True)
+                if result.get("success") and not result.get("skipped"):
+                    enriched += 1
+                    if result.get("is_hot"):
+                        hot += 1
             except Exception as e:
                 print(f"bulk-enrich error for lead {lid}: {e}")
+
+        # ONE consolidated hot-lead alert per bulk run (silent when zero hot leads).
+        if hot > 0:
+            try:
+                from telegram_notify import notify
+                notify(
+                    f"🔥 <b>Bulk Enrichment Complete</b>\n"
+                    f"Enriched: {enriched}\n"
+                    f"Hot leads found: {hot}"
+                )
+            except Exception:
+                pass
 
     background_tasks.add_task(run)
     return {"success": True, "message": f"Enriching {len(ids)} leads in background", "count": len(ids)}

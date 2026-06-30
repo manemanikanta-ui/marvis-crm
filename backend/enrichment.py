@@ -640,7 +640,7 @@ def handle_warm_lead_responded(lead_id: int) -> dict:
     return {"success": True, "proof_url": portal, "emailed": True}
 
 
-def enrich_lead_in_db(lead_id: int, context=None, force=False) -> dict:
+def enrich_lead_in_db(lead_id: int, context=None, force=False, suppress_individual_notify: bool = False) -> dict:
     """Generate, validate, and save enrichment for a single lead.
     context (optional) is free-text from Manikanta, passed through to the prompt.
     force=True bypasses the already-enriched skip-guard (always regenerate)."""
@@ -763,8 +763,13 @@ def enrich_lead_in_db(lead_id: int, context=None, force=False) -> dict:
         metadata={"generated": True, "email_validated": email_valid},
     )
 
-    # Telegram alert for hot leads only (score >= HOT_LEAD_SCORE).
-    if int(lead.get("score") or 0) >= HOT_LEAD_SCORE:
+    # Hot-lead flag (score >= HOT_LEAD_SCORE). Returned so batch callers can count
+    # hot leads and send ONE consolidated alert instead of per-lead spam.
+    is_hot = int(lead.get("score") or 0) >= HOT_LEAD_SCORE
+
+    # Immediate per-lead Telegram alert — skipped during batch runs (the batch
+    # sends one summary at the end); single manual enrichment still pings here.
+    if is_hot and not suppress_individual_notify:
         try:
             from telegram_notify import notify
             notify(
@@ -780,6 +785,7 @@ def enrich_lead_in_db(lead_id: int, context=None, force=False) -> dict:
         "success": True,
         "lead_id": lead_id,
         "name": lead["name"],
+        "is_hot": is_hot,
         "email_validated": email_valid,
         "whatsapp_message": whatsapp_message,
         "email_subject": email_subject,
@@ -813,21 +819,38 @@ def enrich_batch(limit: int = 50, only_missing: bool = True) -> dict:
 
     enriched = 0
     failed   = 0
+    hot      = 0
 
     for i, lead in enumerate(leads):
         print(f"[{i+1}/{len(leads)}] {lead['name'][:40]}")
-        result = enrich_lead_in_db(lead["id"])
+        # Suppress the per-lead hot alert — one summary is sent after the loop.
+        result = enrich_lead_in_db(lead["id"], suppress_individual_notify=True)
 
         if result.get("success") and not result.get("skipped"):
             enriched += 1
+            if result.get("is_hot"):
+                hot += 1
         elif not result.get("success"):
             failed += 1
 
         time.sleep(0.3)  # gentle rate limit
 
-    print(f"\n✅ Done — Enriched: {enriched} | Failed: {failed}")
+    print(f"\n✅ Done — Enriched: {enriched} | Failed: {failed} | Hot: {hot}")
+
+    # ONE consolidated hot-lead alert per batch (silent when zero hot leads).
+    if hot > 0:
+        try:
+            from telegram_notify import notify
+            notify(
+                f"🔥 <b>Batch Enrichment Complete</b>\n"
+                f"Enriched: {enriched}\n"
+                f"Hot leads found: {hot}"
+            )
+        except Exception:
+            pass
+
     return {"enriched": enriched, "failed": failed,
-            "total": len(leads), "skipped": 0}
+            "total": len(leads), "skipped": 0, "hot_leads": hot}
 
 
 async def generate_proof_assets(business: dict) -> dict:

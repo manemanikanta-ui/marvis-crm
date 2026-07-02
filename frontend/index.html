@@ -732,6 +732,10 @@ body {
 .found-card:hover .found-check-wrap { opacity: 1; }
 .found-check-wrap:has(input:checked) { opacity: 1; }
 
+.followup-check-wrap { opacity: 0; transition: opacity 0.15s; }
+.followup-row:hover .followup-check-wrap { opacity: 1; }
+.followup-check-wrap:has(input:checked) { opacity: 1; }
+
 /* LOADING */
 .loading {
   display: flex; align-items: center;
@@ -1077,9 +1081,35 @@ body {
 
     <!-- FOLLOWUPS VIEW -->
     <div id="view-followups" style="display:none">
-      <div class="panel">
+      <div class="panel" style="overflow:visible;">
         <div class="panel-header">
           <div class="panel-title">🔔 Pending Follow-ups</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="followups-select-all" title="Select all" onclick="followupsToggleSelectAll(this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;">
+            <span id="followups-selected-count" style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;"></span>
+            <div style="position:relative;">
+              <button class="btn btn-ghost btn-sm" title="Actions" style="font-size:18px;line-height:1;padding:4px 10px;" onclick="event.stopPropagation();toggleFollowupsMenu()">⋮</button>
+              <div id="followups-menu" style="display:none;position:absolute;right:0;top:110%;z-index:1000;background:#1a1f2e;border:1px solid #2d3748;border-radius:8px;min-width:210px;box-shadow:0 8px 24px rgba(0,0,0,0.4);padding:6px;">
+                <div class="menu-item" onclick="followupsSelectAll()">☑ Select All</div>
+                <div class="menu-item" onclick="followupsDeselectAll()">▢ Deselect All</div>
+                <div class="menu-sep"></div>
+                <div class="menu-label">Sort</div>
+                <div class="menu-item" onclick="followupsApplySort('score_desc')">Score ↓</div>
+                <div class="menu-item" onclick="followupsApplySort('score_asc')">Score ↑</div>
+                <div class="menu-sep"></div>
+                <div class="menu-label">Move to Status</div>
+                <div class="menu-item" onclick="followupsMoveSelectedTo('approved')">→ Approved</div>
+                <div class="menu-item" onclick="followupsMoveSelectedTo('contacted')">→ Contacted</div>
+                <div class="menu-item" onclick="followupsMoveSelectedTo('interested')">→ Interested</div>
+                <div class="menu-item" onclick="followupsMoveSelectedTo('booked')">→ Booked</div>
+                <div class="menu-item" onclick="followupsMoveSelectedTo('converted')">→ Converted</div>
+                <div class="menu-item" onclick="followupsMoveSelectedTo('declined')">→ Declined</div>
+                <div class="menu-item" onclick="followupsMoveSelectedTo('paused')">→ Paused</div>
+                <div class="menu-sep"></div>
+                <div class="menu-item" style="color:var(--red)" onclick="followupsDeleteSelected()">🗑 Delete Selected</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div id="followups-list" style="padding:20px">
           <div class="loading"><div class="spinner"></div>Loading...</div>
@@ -2843,28 +2873,105 @@ function pipelineDeleteSelected() {
 // ─────────────────────────────────────────────
 // FOLLOWUPS
 // ─────────────────────────────────────────────
+let followupLeads = [];
+let followupSelectedIds = new Set();
+let followupSort = 'score_desc';
+
+function toggleFollowupsMenu() {
+  const m = document.getElementById('followups-menu');
+  if (m) m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none';
+}
+function closeFollowupsMenu() {
+  const m = document.getElementById('followups-menu');
+  if (m) m.style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#followups-menu')) closeFollowupsMenu();
+});
+
 async function loadFollowups() {
   const container = document.getElementById('followups-list');
   try {
     const res = await fetch(`${API}/leads?status=contacted&limit=50`).then(r => r.json());
-    const leads = res.leads;
-    if (leads.length === 0) {
-      container.innerHTML = `<div class="empty-state"><div class="empty-icon">🎉</div><div class="empty-title">No follow-ups pending</div></div>`;
-      return;
-    }
-    container.innerHTML = leads.map(l => `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)">
-        <div>
-          <div style="font-weight:500;font-size:13.5px">${l.name}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:2px">${l.business_type || ''} · ${l.phone || 'No phone'}</div>
+    followupLeads = res.leads || [];
+    followupSelectedIds.clear();
+    renderFollowups();
+  } catch(e) {}
+}
+
+function _followupsSorted() {
+  return followupLeads.slice().sort((a, b) =>
+    followupSort === 'score_asc' ? (a.score || 0) - (b.score || 0) : (b.score || 0) - (a.score || 0));
+}
+
+function renderFollowups() {
+  const container = document.getElementById('followups-list');
+  if (!container) return;
+  if (!followupLeads.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">🎉</div><div class="empty-title">No follow-ups pending</div></div>`;
+    updateFollowupsSelectionUI();
+    return;
+  }
+  container.innerHTML = _followupsSorted().map(l => {
+    const checked = followupSelectedIds.has(l.id) ? ' checked' : '';
+    return `
+      <div class="followup-row" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;gap:10px;align-items:center;min-width:0;">
+          <div class="followup-check-wrap" onclick="event.stopPropagation()" style="flex-shrink:0;"><input type="checkbox" class="followup-check"${checked} onclick="toggleFollowupSelection(${l.id}, this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></div>
+          <div style="min-width:0;">
+            <div style="font-weight:500;font-size:13.5px">${l.name}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">${l.business_type || ''} · ${l.phone || 'No phone'} · Score ${l.score || 0}</div>
+          </div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-outline btn-sm" onclick="openLead(${l.id})">View</button>
           <button class="btn btn-primary btn-sm" onclick="scheduleFollowupFor(${l.id})">🔔 Follow-up</button>
         </div>
       </div>
-    `).join('');
-  } catch(e) {}
+    `;
+  }).join('');
+  updateFollowupsSelectionUI();
+}
+
+function updateFollowupsSelectionUI() {
+  const label = document.getElementById('followups-selected-count');
+  if (label) label.textContent = followupSelectedIds.size ? `${followupSelectedIds.size} selected` : '';
+  const cb = document.getElementById('followups-select-all');
+  const ids = followupLeads.map(l => l.id);
+  if (cb) cb.checked = ids.length > 0 && ids.every(id => followupSelectedIds.has(id));
+}
+function toggleFollowupSelection(id, checked) {
+  if (checked) followupSelectedIds.add(id); else followupSelectedIds.delete(id);
+  updateFollowupsSelectionUI();
+}
+function followupsToggleSelectAll(checked) {
+  followupLeads.forEach(l => { if (checked) followupSelectedIds.add(l.id); else followupSelectedIds.delete(l.id); });
+  renderFollowups();
+}
+function followupsSelectAll() {
+  followupLeads.forEach(l => followupSelectedIds.add(l.id));
+  renderFollowups(); closeFollowupsMenu();
+  toast(`${followupSelectedIds.size} selected`, '☑');
+}
+function followupsDeselectAll() {
+  followupSelectedIds.clear(); renderFollowups(); closeFollowupsMenu();
+}
+function followupsApplySort(key) {
+  followupSort = key; closeFollowupsMenu(); renderFollowups();
+}
+function followupsMoveSelectedTo(status) {
+  closeFollowupsMenu();
+  const ids = [...followupSelectedIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Move ${ids.length} selected lead(s) to "${status}"?`)) return;
+  bulkMoveStatus(ids, status, () => { followupSelectedIds.clear(); loadFollowups(); });
+}
+function followupsDeleteSelected() {
+  closeFollowupsMenu();
+  const ids = [...followupSelectedIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Delete ${ids.length} selected lead(s)? This cannot be undone.`)) return;
+  bulkDeleteIds(ids, () => { followupSelectedIds.clear(); loadFollowups(); });
 }
 
 // ─────────────────────────────────────────────

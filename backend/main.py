@@ -848,16 +848,30 @@ async def create_lead(lead: LeadCreate):
     })
     return {"success": True, "id": lead_id, "lead": dict(row) if row else None}
 
+# Child tables with a FK to leads.id (all ON DELETE NO ACTION). They MUST be
+# cleared before the parent lead or the delete raises a ForeignKeyViolation and
+# aborts — this was the "contacted/approved leads can't be deleted" bug (those
+# leads have follow_ups + lead_status_history rows). Keep in sync with schema.
+_LEAD_CHILD_TABLES = ["activities", "follow_ups", "lead_status_history", "proof_packs"]
+
+
+def _delete_leads_with_children(conn, ids) -> int:
+    """Delete the given leads and all their child rows in FK-safe order.
+    Returns the number of lead rows deleted."""
+    ids = list(ids)
+    if not ids:
+        return 0
+    placeholders = ",".join("?" for _ in ids)
+    for tbl in _LEAD_CHILD_TABLES:
+        conn.execute(f"DELETE FROM {tbl} WHERE lead_id IN ({placeholders})", ids)
+    result = conn.execute(f"DELETE FROM leads WHERE id IN ({placeholders})", ids)
+    return result.rowcount
+
+
 @app.delete("/api/leads/{lead_id}")
 async def delete_lead(lead_id: int):
     conn = get_db()
-    # Delete child activities BEFORE the parent lead. activities.lead_id has a FK
-    # to leads.id with ON DELETE NO ACTION, so deleting the lead first raises a
-    # ForeignKeyViolation that aborts the whole delete — that was the bug where
-    # contacted leads (which have activity rows) could not be deleted while new
-    # leads could. Mirror the (correct) order used by bulk-delete.
-    conn.execute("DELETE FROM activities WHERE lead_id = ?", (lead_id,))
-    conn.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
+    _delete_leads_with_children(conn, [lead_id])
     conn.commit()
     conn.close()
     return {"success": True}
@@ -1005,14 +1019,11 @@ def scrape_leads_sync(req: LeadScrapeRequest):
 
 @app.post("/api/leads/bulk-delete")
 async def bulk_delete_leads(req: BulkIds):
-    """Delete multiple leads (and their activities) by id array."""
+    """Delete multiple leads (and all their child rows) by id array."""
     if not req.lead_ids:
         raise HTTPException(status_code=400, detail="No lead_ids provided")
     conn = get_db()
-    placeholders = ",".join("?" for _ in req.lead_ids)
-    conn.execute(f"DELETE FROM activities WHERE lead_id IN ({placeholders})", list(req.lead_ids))
-    result = conn.execute(f"DELETE FROM leads WHERE id IN ({placeholders})", list(req.lead_ids))
-    deleted = result.rowcount
+    deleted = _delete_leads_with_children(conn, req.lead_ids)
     conn.commit()
     conn.close()
     return {"success": True, "deleted": deleted}

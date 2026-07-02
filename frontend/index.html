@@ -719,6 +719,19 @@ body {
 .pipeline-card-name { font-weight: 500; color: var(--text); margin-bottom: 4px; }
 .pipeline-card-type { color: var(--text3); font-size: 11px; }
 
+/* Row/card checkboxes: hidden until you hover the row/card (or it's ticked). */
+.pipeline-check-wrap { opacity: 0; transition: opacity 0.15s; }
+.pipeline-card:hover .pipeline-check-wrap { opacity: 1; }
+.pipeline-check-wrap:has(input:checked) { opacity: 1; }
+
+.lead-check-wrap { opacity: 0; transition: opacity 0.15s; }
+.lead-row:hover .lead-check-wrap { opacity: 1; }
+.lead-check-wrap:has(input:checked) { opacity: 1; }
+
+.found-check-wrap { opacity: 0; transition: opacity 0.15s; }
+.found-card:hover .found-check-wrap { opacity: 1; }
+.found-check-wrap:has(input:checked) { opacity: 1; }
+
 /* LOADING */
 .loading {
   display: flex; align-items: center;
@@ -1027,6 +1040,36 @@ body {
 
     <!-- PIPELINE VIEW -->
     <div id="view-pipeline" style="display:none">
+      <div class="panel" style="margin-bottom:14px;overflow:visible;position:relative;z-index:50;">
+        <div class="panel-header">
+          <div class="panel-title">📊 Pipeline</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span id="pipeline-selected-count" style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;"></span>
+            <div style="position:relative;">
+              <button class="btn btn-ghost btn-sm" title="Actions" style="font-size:18px;line-height:1;padding:4px 10px;" onclick="event.stopPropagation();togglePipelineMenu()">⋮</button>
+              <div id="pipeline-menu" style="display:none;position:absolute;right:0;top:110%;z-index:1000;background:#1a1f2e;border:1px solid #2d3748;border-radius:8px;min-width:210px;box-shadow:0 8px 24px rgba(0,0,0,0.4);padding:6px;">
+                <div class="menu-item" onclick="pipelineSelectAll()">☑ Select All in Column</div>
+                <div class="menu-item" onclick="pipelineDeselectAll()">▢ Deselect All</div>
+                <div class="menu-sep"></div>
+                <div class="menu-label">Sort (within column)</div>
+                <div class="menu-item" onclick="pipelineApplySort('score_desc')">Score ↓</div>
+                <div class="menu-item" onclick="pipelineApplySort('score_asc')">Score ↑</div>
+                <div class="menu-sep"></div>
+                <div class="menu-label">Move to Status</div>
+                <div class="menu-item" onclick="pipelineMoveSelectedTo('approved')">→ Approved</div>
+                <div class="menu-item" onclick="pipelineMoveSelectedTo('contacted')">→ Contacted</div>
+                <div class="menu-item" onclick="pipelineMoveSelectedTo('interested')">→ Interested</div>
+                <div class="menu-item" onclick="pipelineMoveSelectedTo('booked')">→ Booked</div>
+                <div class="menu-item" onclick="pipelineMoveSelectedTo('converted')">→ Converted</div>
+                <div class="menu-item" onclick="pipelineMoveSelectedTo('declined')">→ Declined</div>
+                <div class="menu-item" onclick="pipelineMoveSelectedTo('paused')">→ Paused</div>
+                <div class="menu-sep"></div>
+                <div class="menu-item" style="color:var(--red)" onclick="pipelineDeleteSelected()">🗑 Delete Selected</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="pipeline" id="pipeline-board">
         <div class="loading"><div class="spinner"></div>Loading pipeline...</div>
       </div>
@@ -2208,7 +2251,7 @@ function renderLeadRow(l) {
   var checked = selectedLeadIds.has(l.id) ? ' checked' : '';
   return [
     '<div class="lead-row" onclick="openLead(' + l.id + ')">',
-    '<div onclick="event.stopPropagation()"><input type="checkbox" class="lead-check"' + checked + ' onclick="toggleLeadSelection(' + l.id + ', this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></div>',
+    '<div class="lead-check-wrap" onclick="event.stopPropagation()"><input type="checkbox" class="lead-check"' + checked + ' onclick="toggleLeadSelection(' + l.id + ', this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></div>',
     '<div>',
     '<div class="lead-name">' + (l.name||'') + '</div>',
     '<div class="lead-type">' + (l.business_type||'') + '</div>',
@@ -2653,9 +2696,32 @@ function searchLeads(q) {
 // ─────────────────────────────────────────────
 // PIPELINE
 // ─────────────────────────────────────────────
+let pipelineLeads = [];
+let pipelineSelectedIds = new Set();
+let pipelineSelStatus = null;   // the single column selection is scoped to
+let pipelineSort = 'score_desc';
+
+function togglePipelineMenu() {
+  const m = document.getElementById('pipeline-menu');
+  if (m) m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none';
+}
+function closePipelineMenu() {
+  const m = document.getElementById('pipeline-menu');
+  if (m) m.style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#pipeline-menu')) closePipelineMenu();
+});
+
 async function loadPipeline() {
   const res = await fetch(`${API}/leads?limit=200`).then(r => r.json());
-  const leads = res.leads;
+  pipelineLeads = res.leads || [];
+  pipelineSelectedIds.clear();
+  pipelineSelStatus = null;
+  renderPipeline();
+}
+
+function renderPipeline() {
   const statuses = ['new', 'pending_review', 'approved', 'paused', 'contacted', 'responded', 'interested', 'booked', 'converted', 'declined', 'no_response'];
   const labels = {
     new: '🆕 New',
@@ -2687,9 +2753,11 @@ async function loadPipeline() {
     responded: 'rgba(113,137,246,0.6)',
     no_response: 'rgba(255,255,255,0.15)'
   };
+  const sortCards = arr => arr.slice().sort((a, b) =>
+    pipelineSort === 'score_asc' ? (a.score || 0) - (b.score || 0) : (b.score || 0) - (a.score || 0));
 
   document.getElementById('pipeline-board').innerHTML = statuses.map(s => {
-    const cols = leads.filter(l => l.status === s);
+    const cols = sortCards(pipelineLeads.filter(l => l.status === s));
     return `
       <div class="pipeline-col" style="border-top:2px solid ${borderColors[s] || 'transparent'}">
         <div class="pipeline-col-header" style="color:${colors[s]}">
@@ -2697,15 +2765,79 @@ async function loadPipeline() {
           <span>${cols.length}</span>
         </div>
         ${cols.length === 0 ? '<div style="color:var(--text3);font-size:12px;text-align:center;margin-top:20px">Empty</div>' : ''}
-        ${cols.map(l => `
+        ${cols.map(l => {
+          const checked = pipelineSelectedIds.has(l.id) ? ' checked' : '';
+          return `
           <div class="pipeline-card" onclick="openLead(${l.id})">
-            <div class="pipeline-card-name">${l.name}</div>
-            <div class="pipeline-card-type">${l.business_type || '—'} · Score: ${l.score}</div>
+            <div style="display:flex;gap:8px;align-items:flex-start;">
+              <div onclick="event.stopPropagation()" class="pipeline-check-wrap" style="flex-shrink:0;"><input type="checkbox" class="pipeline-check"${checked} onclick="togglePipelineSelection(${l.id}, this.checked)" style="width:13px;height:13px;accent-color:var(--accent);cursor:pointer;"></div>
+              <div style="flex:1;min-width:0;">
+                <div class="pipeline-card-name">${l.name}</div>
+                <div class="pipeline-card-type">${l.business_type || '—'} · Score: ${l.score}</div>
+              </div>
+            </div>
           </div>
-        `).join('')}
+        `;}).join('')}
       </div>
     `;
   }).join('');
+  updatePipelineSelectionUI();
+}
+
+function updatePipelineSelectionUI() {
+  const label = document.getElementById('pipeline-selected-count');
+  if (label) label.textContent = pipelineSelectedIds.size
+    ? `${pipelineSelectedIds.size} selected in ${pipelineSelStatus}` : '';
+}
+// Selection is scoped to ONE column (status) at a time. Ticking a card in a
+// different column resets the previous selection, so a bulk action can never
+// touch a forgotten selection sitting in another column.
+function togglePipelineSelection(id, checked) {
+  const lead = pipelineLeads.find(l => l.id === id);
+  const status = lead ? lead.status : null;
+  if (checked) {
+    if (pipelineSelStatus && pipelineSelStatus !== status) {
+      pipelineSelectedIds.clear();
+      pipelineSelStatus = status;
+      pipelineSelectedIds.add(id);
+      renderPipeline();   // untick boxes left checked in the previous column
+      return;
+    }
+    pipelineSelStatus = status;
+    pipelineSelectedIds.add(id);
+  } else {
+    pipelineSelectedIds.delete(id);
+    if (pipelineSelectedIds.size === 0) pipelineSelStatus = null;
+  }
+  updatePipelineSelectionUI();
+}
+function pipelineSelectAll() {
+  closePipelineMenu();
+  if (!pipelineSelStatus) { toast('Select a lead in a column first', 'ℹ️'); return; }
+  pipelineLeads.forEach(l => { if (l.status === pipelineSelStatus) pipelineSelectedIds.add(l.id); });
+  renderPipeline();
+  toast(`${pipelineSelectedIds.size} selected in ${pipelineSelStatus}`, '☑');
+}
+function pipelineDeselectAll() {
+  pipelineSelectedIds.clear(); pipelineSelStatus = null; renderPipeline(); closePipelineMenu();
+}
+function pipelineApplySort(key) {
+  pipelineSort = key; closePipelineMenu(); renderPipeline();
+}
+function pipelineMoveSelectedTo(status) {
+  closePipelineMenu();
+  const ids = [...pipelineSelectedIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (status === pipelineSelStatus) { toast('Already in that column', 'ℹ️'); return; }
+  if (!confirm(`Move ${ids.length} lead(s) from "${pipelineSelStatus}" to "${status}"?`)) return;
+  bulkMoveStatus(ids, status, () => { pipelineSelectedIds.clear(); pipelineSelStatus = null; loadPipeline(); });
+}
+function pipelineDeleteSelected() {
+  closePipelineMenu();
+  const ids = [...pipelineSelectedIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Delete ${ids.length} lead(s) from "${pipelineSelStatus}"? This cannot be undone.`)) return;
+  bulkDeleteIds(ids, () => { pipelineSelectedIds.clear(); pipelineSelStatus = null; loadPipeline(); });
 }
 
 // ─────────────────────────────────────────────
@@ -4345,10 +4477,10 @@ function renderFoundLeads() {
   container.innerHTML = _foundSorted().map(l => {
     const checked = foundSelectedIds.has(l.id) ? ' checked' : '';
     const cb = l.id
-      ? '<div onclick="event.stopPropagation()" style="flex-shrink:0;padding-top:1px;"><input type="checkbox" class="found-check"' + checked + ' onclick="toggleFoundSelection(' + l.id + ', this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></div>'
+      ? '<div class="found-check-wrap" onclick="event.stopPropagation()" style="flex-shrink:0;padding-top:1px;"><input type="checkbox" class="found-check"' + checked + ' onclick="toggleFoundSelection(' + l.id + ', this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></div>'
       : '';
     return `
-     <div style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;display:flex;gap:10px;align-items:flex-start;"
+     <div class="found-card" style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;display:flex;gap:10px;align-items:flex-start;"
        onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''"
        ${l.id ? `onclick="openLeadFromFindPage(${l.id})"` : ''}>
        ${cb}

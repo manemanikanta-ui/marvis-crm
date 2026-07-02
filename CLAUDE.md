@@ -1,5 +1,21 @@
 # MARVIS CRM — Claude Code Context
+## SESSION START CHECKLIST — RUN BEFORE ANYTHING ELSE
 
+1. Verify Zap token-saving proxy is active:
+   cat ~/.claude/settings.json | grep -A3 "PreToolUse"
+   If not active: run `zap init -g` then verify again.
+
+2. Confirm correct working directory:
+   pwd
+   (Must match this project — if wrong, cd to correct path before any command)
+
+3. Check active Claude model:
+   Never use claude-sonnet-4-20250514 (retired 2026-06-15)
+   Use claude-sonnet-4-6 for standard tasks
+   Use claude-haiku-4-5-20251001 for lightweight tasks
+
+4. Read feedback.md before starting:
+   cat C:\Users\HP\PycharmProjects\PythonProject\feedback.md
 ## What This Project Is
 MARVIS CRM is the core backend + dashboard of the MARVIS AI SDR operating system
 built by Manikanta Mane for Talktiv AI (Hyderabad-based AI automation startup).

@@ -3290,7 +3290,28 @@ async function deleteLead() {
   await fetch(`${API}/leads/${currentLeadId}`, { method: 'DELETE' });
   closeModal();
   toast('Lead deleted', '🗑️');
-  loadLeads();
+  refreshActiveView();
+}
+
+// Refresh whichever section is currently visible. The lead modal can be opened
+// from any view (All Leads, Pipeline, Follow-ups, Dashboard, Find Leads), so
+// after a mutating action we reload the active view rather than always the
+// leads list (which was leaving e.g. the Pipeline board stale).
+function refreshActiveView() {
+  const active = views.find(v => {
+    const el = document.getElementById('view-' + v);
+    return el && el.style.display !== 'none';
+  });
+  switch (active) {
+    case 'dashboard':   loadDashboard(); break;
+    case 'leads':       loadLeadsView(); break;
+    case 'pipeline':    loadPipeline(); break;
+    case 'followups':   loadFollowups(); break;
+    case 'analytics':   loadAnalytics(); break;
+    case 'proof-packs': loadProofPacks(); break;
+    // findleads shows ephemeral scrape results — nothing to reload.
+    default: loadLeads();
+  }
 }
 
 function quickContact(id) {

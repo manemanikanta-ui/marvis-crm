@@ -851,8 +851,13 @@ async def create_lead(lead: LeadCreate):
 @app.delete("/api/leads/{lead_id}")
 async def delete_lead(lead_id: int):
     conn = get_db()
-    conn.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
+    # Delete child activities BEFORE the parent lead. activities.lead_id has a FK
+    # to leads.id with ON DELETE NO ACTION, so deleting the lead first raises a
+    # ForeignKeyViolation that aborts the whole delete — that was the bug where
+    # contacted leads (which have activity rows) could not be deleted while new
+    # leads could. Mirror the (correct) order used by bulk-delete.
     conn.execute("DELETE FROM activities WHERE lead_id = ?", (lead_id,))
+    conn.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
     conn.commit()
     conn.close()
     return {"success": True}

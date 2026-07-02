@@ -301,7 +301,7 @@ async def proof_stats():
     """Return all proof packs for admin view in MARVIS CRM."""
     conn = get_db()
     packs = conn.execute("""
-        SELECT id, code, business_name, category, city,
+        SELECT id, code, lead_id, business_name, category, city,
                regen_count, view_count, status,
                created_at, expires_at, last_viewed_at, converted
         FROM proof_packs
@@ -309,6 +309,42 @@ async def proof_stats():
     """).fetchall()
     conn.close()
     return JSONResponse([dict(p) for p in packs])
+
+
+class ProofPackUpdate(BaseModel):
+    lead_id: Optional[int] = None
+
+
+@app.delete("/api/proof/{code}")
+async def delete_proof_pack(code: str):
+    """Delete a proof pack by its code."""
+    conn = get_db()
+    result = conn.execute("DELETE FROM proof_packs WHERE code = ?", (code,))
+    deleted = result.rowcount
+    conn.commit()
+    conn.close()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Proof pack not found")
+    return {"success": True, "deleted": deleted}
+
+
+@app.patch("/api/proof/{code}")
+async def update_proof_pack(code: str, update: ProofPackUpdate):
+    """Move a proof pack to a lead (set lead_id) or detach it (lead_id=null)."""
+    conn = get_db()
+    row = conn.execute("SELECT id FROM proof_packs WHERE code = ?", (code,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Proof pack not found")
+    if update.lead_id is not None:
+        lead = conn.execute("SELECT id FROM leads WHERE id = ?", (update.lead_id,)).fetchone()
+        if not lead:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Lead not found")
+    conn.execute("UPDATE proof_packs SET lead_id = ? WHERE code = ?", (update.lead_id, code))
+    conn.commit()
+    conn.close()
+    return {"success": True, "code": code, "lead_id": update.lead_id}
 
 
 def _expired_page(pack: dict) -> str:

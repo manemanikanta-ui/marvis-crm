@@ -739,6 +739,10 @@ body {
 .followup-row:hover .followup-check-wrap { opacity: 1; }
 .followup-check-wrap:has(input:checked) { opacity: 1; }
 
+.proof-check-wrap { opacity: 0; transition: opacity 0.15s; }
+.proof-row:hover .proof-check-wrap { opacity: 1; }
+.proof-check-wrap:has(input:checked) { opacity: 1; }
+
 /* LOADING */
 .loading {
   display: flex; align-items: center;
@@ -1407,9 +1411,23 @@ body {
       </div>
 
       <!-- All packs table -->
-      <div class="panel">
+      <div class="panel" style="overflow:visible;">
         <div class="panel-header">
           <div class="panel-title">All Proof Packs <span id="proof-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span id="proof-selected-count" style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;"></span>
+            <div style="position:relative;">
+              <button class="btn btn-ghost btn-sm" title="Actions" style="font-size:18px;line-height:1;padding:4px 10px;" onclick="event.stopPropagation();toggleProofMenu()">⋮</button>
+              <div id="proof-menu" style="display:none;position:absolute;right:0;top:110%;z-index:1000;background:#1a1f2e;border:1px solid #2d3748;border-radius:8px;min-width:200px;box-shadow:0 8px 24px rgba(0,0,0,0.4);padding:6px;">
+                <div class="menu-item" onclick="proofSelectAll()">☑ Select All</div>
+                <div class="menu-item" onclick="proofDeselectAll()">▢ Deselect All</div>
+                <div class="menu-sep"></div>
+                <div class="menu-item" onclick="proofMoveToLead()">👤 Move to Lead…</div>
+                <div class="menu-sep"></div>
+                <div class="menu-item" style="color:var(--red)" onclick="proofDeleteSelected()">🗑 Delete Selected</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div id="proof-packs-body" style="padding:0 20px 20px;">
           <div class="loading"><div class="spinner"></div>Loading...</div>
@@ -1922,6 +1940,27 @@ body {
 <div class="drawer-overlay" id="reply-drawer-overlay" onclick="closeReplyDrawer()"></div>
 <div class="drawer" id="reply-drawer" aria-hidden="true">
   <div id="reply-drawer-body"></div>
+</div>
+
+<!-- PROOF PACK — MOVE TO LEAD MODAL -->
+<div class="modal-overlay" id="proof-move-modal" onclick="if(event.target===this)closeProofMoveModal()">
+  <div class="modal" style="width:420px;">
+    <div class="modal-header">
+      <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;">Move Proof Pack(s) to Lead</div>
+      <button class="btn btn-ghost" onclick="closeProofMoveModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-label">Lead</div>
+      <select id="proof-move-lead-select" class="search-input" style="width:100%;">
+        <option value="">— Detach (no lead) —</option>
+      </select>
+      <div id="proof-move-count" style="font-size:12px;color:var(--text3);margin-top:10px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn btn-outline" onclick="closeProofMoveModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="applyProofMoveToLead()">Apply</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- TOAST -->
@@ -4076,9 +4115,24 @@ async function createLead() {
 // PROOF PACKS
 // ─────────────────────────────────────────────
 let _proofLeads = [];
+let proofPacks = [];
+let proofSelectedCodes = new Set();
+
+function toggleProofMenu() {
+  const m = document.getElementById('proof-menu');
+  if (m) m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none';
+}
+function closeProofMenu() {
+  const m = document.getElementById('proof-menu');
+  if (m) m.style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#proof-menu')) closeProofMenu();
+});
 
 async function loadProofPacks() {
   loadProofLeadOptions();
+  proofSelectedCodes.clear();
   const body = document.getElementById('proof-packs-body');
   try {
     const packs = await fetch(`${API}/proof/stats`).then(r => r.json());
@@ -4164,17 +4218,21 @@ function copyProofLink(code) {
 }
 
 function renderProofPacksTable(packs) {
+  proofPacks = packs || [];
   const body = document.getElementById('proof-packs-body');
   const countEl = document.getElementById('proof-count');
-  if (countEl) countEl.textContent = '(' + packs.length + ')';
-  if (!packs.length) {
+  if (countEl) countEl.textContent = '(' + proofPacks.length + ')';
+  if (!proofPacks.length) {
     body.innerHTML = '<div class="empty-state"><div class="empty-title">No proof packs yet</div><div class="empty-sub">Generate one above.</div></div>';
+    updateProofSelectionUI();
     return;
   }
   const td = 'padding:8px;border-bottom:1px solid var(--border);';
-  const rows = packs.map(p => {
+  const rows = proofPacks.map(p => {
     const status = p.status || 'active';
-    return '<tr>'
+    const checked = proofSelectedCodes.has(p.code) ? ' checked' : '';
+    return '<tr class="proof-row">'
+      + '<td style="' + td + '"><span class="proof-check-wrap"><input type="checkbox" class="proof-check"' + checked + ' onclick="toggleProofSelection(\'' + pEsc(p.code) + '\', this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></span></td>'
       + '<td style="' + td + '">' + pEsc(p.business_name) + '</td>'
       + '<td style="' + td + "font-family:'DM Mono',monospace;\">" + pEsc(p.code) + '</td>'
       + '<td style="' + td + '">' + (p.view_count || 0) + '</td>'
@@ -4185,11 +4243,81 @@ function renderProofPacksTable(packs) {
       + '<td style="' + td + '"><button class="btn btn-ghost btn-sm" onclick="copyProofLink(\'' + pEsc(p.code) + '\')">📋 Copy Link</button></td>'
       + '</tr>';
   }).join('');
-  const headers = ['Business', 'Code', 'Views', 'Regens', 'Status', 'Created', 'Expires', ''];
   const th = 'text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text3);font-weight:600;white-space:nowrap;';
+  const selAll = '<th style="' + th + '"><input type="checkbox" id="proof-select-all" onclick="proofToggleSelectAll(this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></th>';
+  const headers = ['Business', 'Code', 'Views', 'Regens', 'Status', 'Created', 'Expires', ''];
   body.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
-    + '<thead><tr>' + headers.map(h => '<th style="' + th + '">' + h + '</th>').join('') + '</tr></thead>'
+    + '<thead><tr>' + selAll + headers.map(h => '<th style="' + th + '">' + h + '</th>').join('') + '</tr></thead>'
     + '<tbody>' + rows + '</tbody></table></div>';
+  updateProofSelectionUI();
+}
+
+// ── Proof Packs: selection + bulk actions (entity keyed by `code`, not lead id) ──
+function updateProofSelectionUI() {
+  const label = document.getElementById('proof-selected-count');
+  if (label) label.textContent = proofSelectedCodes.size ? `${proofSelectedCodes.size} selected` : '';
+  const cb = document.getElementById('proof-select-all');
+  const codes = proofPacks.map(p => p.code);
+  if (cb) cb.checked = codes.length > 0 && codes.every(c => proofSelectedCodes.has(c));
+}
+function toggleProofSelection(code, checked) {
+  if (checked) proofSelectedCodes.add(code); else proofSelectedCodes.delete(code);
+  updateProofSelectionUI();
+}
+function proofToggleSelectAll(checked) {
+  proofPacks.forEach(p => { if (checked) proofSelectedCodes.add(p.code); else proofSelectedCodes.delete(p.code); });
+  renderProofPacksTable(proofPacks);
+}
+function proofSelectAll() {
+  proofPacks.forEach(p => proofSelectedCodes.add(p.code));
+  renderProofPacksTable(proofPacks); closeProofMenu();
+  toast(`${proofSelectedCodes.size} selected`, '☑');
+}
+function proofDeselectAll() {
+  proofSelectedCodes.clear(); renderProofPacksTable(proofPacks); closeProofMenu();
+}
+async function proofDeleteSelected() {
+  closeProofMenu();
+  const codes = [...proofSelectedCodes];
+  if (!codes.length) { toast('No packs selected', '⚠️'); return; }
+  if (!confirm(`Delete ${codes.length} proof pack(s)? This cannot be undone.`)) return;
+  const { ok, failed } = await _bulkSequential(codes, async code => {
+    const r = await fetch(`${API}/proof/${code}`, { method: 'DELETE' });
+    return r.ok;
+  });
+  toast(failed.length ? `Deleted ${ok} of ${codes.length} — ${failed.length} failed` : `Deleted ${ok} pack(s)`, failed.length ? '⚠️' : '🗑');
+  proofSelectedCodes.clear();
+  loadProofPacks();
+}
+function proofMoveToLead() {
+  closeProofMenu();
+  if (!proofSelectedCodes.size) { toast('No packs selected', '⚠️'); return; }
+  const sel = document.getElementById('proof-move-lead-select');
+  sel.innerHTML = '<option value="">— Detach (no lead) —</option>' +
+    (_proofLeads || []).map(l => `<option value="${l.id}">${pEsc(l.name)}${l.business_type ? ' · ' + pEsc(l.business_type) : ''}</option>`).join('');
+  document.getElementById('proof-move-count').textContent = `${proofSelectedCodes.size} pack(s) selected`;
+  document.getElementById('proof-move-modal').classList.add('open');
+}
+function closeProofMoveModal() {
+  document.getElementById('proof-move-modal').classList.remove('open');
+}
+async function applyProofMoveToLead() {
+  const val = document.getElementById('proof-move-lead-select').value;
+  const leadId = val ? Number(val) : null;
+  const codes = [...proofSelectedCodes];
+  if (!codes.length) { closeProofMoveModal(); return; }
+  const { ok, failed } = await _bulkSequential(codes, async code => {
+    const r = await fetch(`${API}/proof/${code}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_id: leadId })
+    });
+    return r.ok;
+  });
+  toast(failed.length ? `Moved ${ok} of ${codes.length} — ${failed.length} failed`
+                      : (leadId ? `Moved ${ok} pack(s) to lead` : `Detached ${ok} pack(s)`), failed.length ? '⚠️' : '✅');
+  closeProofMoveModal();
+  proofSelectedCodes.clear();
+  loadProofPacks();
 }
 
 function pEsc(s) {

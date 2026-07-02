@@ -1496,7 +1496,17 @@ async def get_stats():
     hot_leads = conn.execute(
         "SELECT COUNT(*) FROM leads WHERE score >= 75 AND (COALESCE(email,'') != '' OR COALESCE(phone,'') != '')"
     ).fetchone()[0]
-    contacted = by_status.get('contacted', 0)
+    # "Contacted" = leads we've actually reached at least once (any sent outbound
+    # email/WhatsApp), NOT just those currently in status 'contacted'. The old
+    # by_status count undercounted: leads that replied or advanced (responded /
+    # interested / booked / converted) leave the 'contacted' status, so the KPI
+    # shrank as the funnel progressed. JOIN leads so deleted/test (lead_id=0)
+    # activity rows never inflate the count.
+    contacted = conn.execute(
+        "SELECT COUNT(DISTINCT a.lead_id) FROM activities a "
+        "JOIN leads l ON l.id = a.lead_id "
+        "WHERE a.channel IN ('email','whatsapp') AND a.status = 'sent'"
+    ).fetchone()[0]
     converted = by_status.get('converted', 0)
     pending_followups = conn.execute(
         "SELECT COUNT(*) FROM follow_ups WHERE status = 'pending'"

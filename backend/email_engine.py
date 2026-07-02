@@ -45,18 +45,27 @@ Talktiv AI | talktivai.com"""
     "followup_3": {
         "delay_days": 3,
         "label": "Follow-up Day 3",
+        # If schedule_sequence attached a proof pack (lead['_proof_url'], only for
+        # score >= 60), the Day-3 email hands over the actual sample pack link;
+        # otherwise it keeps the original "want me to send it over?" wording.
         "build": lambda lead: {
             "subject": f"Re: {lead['name']} — still happy to help",
-            "body": f"""Hi,
-
-Just following up on my note from a few days ago.
-
-I put together a quick sample — Google profile optimization + 5 follow-up emails + 30 social captions — specifically for businesses like {lead['name']}.
-
-Takes 2 minutes to review and there's zero commitment. Want me to send it over?
-
-— Manikanta
-Talktiv AI | talktivai.com"""
+            "body": (
+                "Hi,\n\n"
+                "Just following up on my note from a few days ago.\n\n"
+                + (
+                    f"I put together a free sample pack for {lead['name']} — a Google profile "
+                    "write-up, a 5-email sequence, and 30 social captions. Here it is, no commitment:\n"
+                    f"{lead['_proof_url']}\n\n"
+                    "Worth a 2-minute look?\n\n"
+                    if lead.get('_proof_url') else
+                    f"I put together a quick sample — Google profile optimization + 5 follow-up "
+                    f"emails + 30 social captions — specifically for businesses like {lead['name']}.\n\n"
+                    "Takes 2 minutes to review and there's zero commitment. Want me to send it over?\n\n"
+                )
+                + "— Manikanta\n"
+                "Talktiv AI | talktivai.com"
+            )
         }
     },
     "followup_7": {
@@ -216,6 +225,20 @@ def schedule_sequence(lead_id: int, to_email: str):
 
     if not lead:
         return
+
+    # Proof pack for the Day-3 follow-up: only for warm+ leads (score >= 60), and
+    # only here — after the lead has been approved into the sequence, NEVER at
+    # enrichment. Idempotent (reuses an existing pack). The portal link is woven
+    # into the Day-3 email by the followup_3 template via lead['_proof_url'].
+    # Token cost is accepted here by design.
+    try:
+        if int(lead.get("score") or 0) >= 60:
+            from enrichment import get_lead_proof_url, create_proof_pack_for_lead
+            portal = get_lead_proof_url(lead_id) or create_proof_pack_for_lead(lead)
+            if portal:
+                lead["_proof_url"] = portal
+    except Exception as e:
+        print(f"  Day-3 proof pack skipped for lead {lead_id}: {e}")
 
     # Schedule follow-up emails (Day 3, Day 7 and Day 21) — all queued up front.
     for key in ["followup_3", "followup_7", "followup_21"]:

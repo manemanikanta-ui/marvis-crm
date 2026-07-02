@@ -592,52 +592,11 @@ def create_proof_pack_for_lead(lead: dict):
 
 
 def handle_warm_lead_responded(lead_id: int) -> dict:
-    """Tier-2 trigger: a warm lead replied. If no proof pack exists yet, generate
-    one and send the standalone 'the assets I mentioned' email. Idempotent."""
-    conn = get_db()
-    row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
-    conn.close()
-    if not row:
-        return {"success": False, "error": "Lead not found"}
-    lead = dict(row)
-
-    if lead_has_proof_pack(lead_id):
-        return {"success": True, "skipped": True, "reason": "proof pack already exists"}
-
-    portal = create_proof_pack_for_lead(lead)
-    if not portal:
-        return {"success": False, "error": "Proof pack generation failed"}
-
-    email = (lead.get("email") or "").strip()
-    if not email:
-        return {"success": True, "proof_url": portal, "emailed": False, "reason": "no email on lead"}
-
-    name = lead.get("name", "")
-    subject = f"{name} — the samples I mentioned"
-    # Proof-pack link withheld until the /proof portal is verified working — the
-    # pack is still generated above; we just don't email the (currently 404ing) URL.
-    body = (
-        f"Thanks for getting back to me about {name}.\n\n"
-        "I've put together a few sample assets — a Google Business write-up, an "
-        "email sequence, and some social captions — and I'll send them across shortly.\n\n"
-        f"{SIGNATURE}"
-    )
-    try:
-        from email_engine import send_email_now
-        send_email_now(
-            email, subject, body, lead_id, "proof_followup",
-            metadata={"source": "warm_responded", "proof_url": portal},
-        )
-    except Exception as e:
-        return {"success": True, "proof_url": portal, "emailed": False, "error": str(e)}
-
-    log_activity_event(
-        lead_id, "proof_followup", "email",
-        "Sent warm-reply follow-up (proof pack generated; link withheld until verified)",
-        status="sent", direction="outbound",
-        metadata={"source": "warm_responded", "proof_url": portal},
-    )
-    return {"success": True, "proof_url": portal, "emailed": True}
+    """DISABLED. Proof packs are no longer generated when a lead replies —
+    generation now happens only post-approval, on the Day-3 follow-up for leads
+    scored >= 60 (see email_engine.schedule_sequence). Kept as a safe no-op so the
+    existing caller in gmail_service.py keeps working without any change there."""
+    return {"success": True, "skipped": True, "reason": "on-reply proof generation disabled"}
 
 
 def enrich_lead_in_db(lead_id: int, context=None, force=False, suppress_individual_notify: bool = False) -> dict:
@@ -659,14 +618,12 @@ def enrich_lead_in_db(lead_id: int, context=None, force=False, suppress_individu
 
     print(f"  ✨ Enriching: {lead['name'][:40]}")
 
-    # Tier 1 — hot leads get a proof pack now, and its portal link goes into Email 1.
-    # Warm leads (score < 75) get proof packs later, on reply (handle_warm_lead_responded).
+    # Proof packs are NO LONGER generated at enrichment time — that produced packs
+    # for leads before they were ever approved (and burned tokens on unapproved
+    # leads). Packs are now generated only after approval, attached to the Day-3
+    # follow-up for leads scored >= 60 (see email_engine.schedule_sequence).
+    # Manual generation via the Proof Packs tab still works.
     proof_pack_url = None
-    if int(lead.get("score") or 0) >= HOT_LEAD_SCORE:
-        try:
-            proof_pack_url = get_lead_proof_url(lead["id"]) or create_proof_pack_for_lead(lead)
-        except Exception as e:
-            print(f"  proof pack (tier 1) skipped for {lead['name'][:40]}: {e}")
 
     # Generate with validation + one retry — never save invalid output.
     result = None

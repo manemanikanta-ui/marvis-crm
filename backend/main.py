@@ -57,6 +57,8 @@ from crm_core import (
     random_delay_seconds,
     update_lead_status,
     load_safety_settings,
+    is_office_hours,
+    count_today_activity,
 )
 
 app = FastAPI(title="MARVIS CRM", version="1.0.0")
@@ -1133,7 +1135,7 @@ async def send_full_sequence(lead_id: int, to_email: str, background_tasks: Back
             schedule_sequence(lead_id, to_email)
             print(f"Sequence launched for {lead['name']}")
     background_tasks.add_task(run)
-    return {"success": True, "message": "Sequence launched — initial + Day 3 + Day 7 follow-ups scheduled"}
+    return {"success": True, "message": "Sequence launched — initial + Day 3 + Day 7 + Day 21 follow-ups scheduled"}
 
 @app.get("/api/email-queue")
 async def get_email_queue():
@@ -1262,19 +1264,133 @@ def health():
     }
 
 
+def _run_approval_outreach(lead_ids: List[int]) -> None:
+    """Post-approval outreach pipeline (runs in a FastAPI BackgroundTask).
+
+    For each approved lead: ensure it is enriched (fallback only — leads are
+    normally enriched already when they reach pending_review), then send the Day-0
+    email and queue the Day 3/7/21 sequence. send_email_now moves the lead
+    approved -> contacted, so the scheduler's approved-queue won't double-send.
+
+    Respects the deliverability safety gates (office_hours_only + max_emails_per_day)
+    per Manikanta's choice. A lead approved outside office hours or over the daily
+    cap stays 'approved' and is picked up later by the scheduler's approved queue
+    (when auto_send is enabled). This path is INDEPENDENT of auto_send_enabled —
+    manual approval is itself the authorisation to send. Fires ONE Telegram summary
+    at the end. Never raises.
+    """
+    from enrichment import enrich_lead_in_db
+    from email_engine import send_email_now, schedule_sequence
+
+    enriched = 0
+    sent = 0
+    failed = 0
+
+    safety = load_safety_settings()
+    office_ok = (not safety["office_hours_only"]) or is_office_hours()
+
+    try:
+        conn = get_db()
+        settings = {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings").fetchall()}
+        conn.close()
+    except Exception:
+        settings = {}
+    auto_sequence = settings.get("auto_sequence_enabled", "true") != "false"
+
+    for lead_id in lead_ids:
+        try:
+            conn = get_db()
+            row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
+            conn.close()
+            if not row:
+                continue
+            lead = dict(row)
+
+            # Status may have changed since approval — only act on approved leads.
+            if str(lead.get("status") or "") != "approved":
+                continue
+
+            email = (lead.get("email") or "").strip()
+            if not email:
+                continue  # nothing to send; leave as approved
+
+            # Fallback enrichment (approved leads are normally already enriched).
+            if not (lead.get("email_subject") and lead.get("email_body")):
+                res = enrich_lead_in_db(lead_id, suppress_individual_notify=True)
+                if res.get("success") and not res.get("skipped"):
+                    enriched += 1
+                conn = get_db()
+                row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
+                conn.close()
+                lead = dict(row) if row else lead
+                # enrich_lead_in_db resets status to pending_review — restore approved.
+                if str(lead.get("status") or "") == "pending_review":
+                    update_lead_status(lead_id, "approved", source="approval",
+                                       note="Re-approved after fallback enrichment")
+
+            subject = (lead.get("email_subject") or "").strip()
+            body = (lead.get("email_body") or "").strip()
+            if not (subject and body):
+                failed += 1
+                continue
+
+            # Deliverability safety gates.
+            if not office_ok:
+                continue  # deferred — scheduler approved-queue sends it in-hours
+            if count_today_activity("email", status="sent") >= int(safety["max_emails_per_day"]):
+                break  # daily cap hit — remaining leads stay approved for later
+
+            delay = random_delay_seconds()
+            if delay > 0:
+                time.sleep(delay)
+
+            result = send_email_now(
+                email, subject, body, lead_id, "approval",
+                metadata={"source": "approval"},
+            )
+            if result.get("success"):
+                sent += 1
+                if auto_sequence:
+                    schedule_sequence(lead_id, email)
+            else:
+                failed += 1
+        except Exception as e:
+            failed += 1
+            print(f"approval outreach error for lead {lead_id}: {e}")
+
+    # ONE consolidated Telegram summary for the run (never raises).
+    if enriched or sent or failed:
+        try:
+            from telegram_notify import notify
+            notify(
+                f"✅ <b>Approval run complete</b>\n"
+                f"Enriched: {enriched}\n"
+                f"Emails sent: {sent}\n"
+                f"Failed: {failed}"
+            )
+        except Exception:
+            pass
+
+
 @app.post("/api/bulk-approve")
-async def bulk_approve():
-    """Approve all leads currently in pending_review status."""
+async def bulk_approve(background_tasks: BackgroundTasks):
+    """Approve all leads currently in pending_review status, then fire the
+    outreach pipeline (enrich fallback + Day-0 send + sequence) in the background."""
     conn = get_db()
-    result = conn.execute(
-        "UPDATE leads SET status='approved' WHERE status='pending_review'"
-    )
-    conn.commit()
-    count = result.rowcount
+    ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM leads WHERE status='pending_review'"
+    ).fetchall()]
+    if ids:
+        placeholders = ",".join("?" for _ in ids)
+        conn.execute(f"UPDATE leads SET status='approved' WHERE id IN ({placeholders})", ids)
+        conn.commit()
     conn.close()
+    count = len(ids)
     log_activity_event(None, "bulk_approve", "system", f"Bulk approved {count} leads", status="logged", direction="system", metadata={"approved": count})
     emit_hud_event("bulk_approve", {"approved": count})
-    return {"approved": count, "message": f"{count} leads approved"}
+    if ids:
+        background_tasks.add_task(_run_approval_outreach, ids)
+    return {"approved": count, "message": f"{count} leads approved — outreach queued"}
 
 
 @app.post("/api/recompute-scores")
@@ -1507,13 +1623,18 @@ async def pending_approvals(limit: int = 100):
 
 
 @app.post("/api/approve-outreach/{lead_id}")
-async def approve_outreach(lead_id: int):
-    return update_lead_status(
+async def approve_outreach(lead_id: int, background_tasks: BackgroundTasks):
+    result = update_lead_status(
         lead_id,
         "approved",
         source="approval",
         note="Outreach approved",
     )
+    # On approval, fire the outreach pipeline (enrich fallback + Day-0 send +
+    # sequence) in the background. send_email_now advances the lead to 'contacted'.
+    if result.get("success"):
+        background_tasks.add_task(_run_approval_outreach, [lead_id])
+    return result
 
 
 @app.post("/api/pause-lead/{lead_id}")

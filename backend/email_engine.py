@@ -76,6 +76,24 @@ Reply anytime — even months from now.
 Founder, Talktiv AI
 talktivai.com"""
         }
+    },
+    "followup_21": {
+        "delay_days": 21,
+        "label": "Follow-up Day 21",
+        "build": lambda lead: {
+            "subject": f"Keeping the door open — {lead['name']}",
+            "body": f"""Hi,
+
+Closing my notes on {lead['name']} for now — I won't keep emailing.
+
+If down the line you want an AI assistant handling missed calls, enquiries, and follow-ups for you, my door stays open. Just reply to this whenever the timing is right.
+
+Wishing you a strong quarter.
+
+— Manikanta
+Founder, Talktiv AI
+talktivai.com"""
+        }
     }
 }
 
@@ -199,8 +217,8 @@ def schedule_sequence(lead_id: int, to_email: str):
     if not lead:
         return
 
-    # Schedule follow-up emails (Day 3 and Day 7)
-    for key in ["followup_3", "followup_7"]:
+    # Schedule follow-up emails (Day 3, Day 7 and Day 21) — all queued up front.
+    for key in ["followup_3", "followup_7", "followup_21"]:
         template = TEMPLATES[key]
         scheduled_at = (datetime.now() + timedelta(days=template["delay_days"])).isoformat()
         content = template["build"](lead)

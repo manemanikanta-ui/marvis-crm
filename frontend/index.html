@@ -2008,7 +2008,7 @@ function togglePendingSelection(id, checked) {
 async function approvePendingLead(id, refresh = true) {
   const res = await fetch(`${API}/approve-outreach/${id}`, { method: 'POST' }).then(r => r.json());
   if (res.success) {
-    toast('Lead approved', '✅');
+    toast('Lead approved — outreach queued', '✅');
     if (refresh) {
       await loadDashboard();
       await loadPendingApprovals();
@@ -2146,7 +2146,7 @@ async function approveAllPending() {
   if (!confirm('Approve ALL leads currently pending review?')) return;
   try {
     const res = await fetch(`${API}/bulk-approve`, { method: 'POST' }).then(r => r.json());
-    toast(`Approved ${res.approved ?? 0} lead(s)`, '✅');
+    toast(`Approved ${res.approved ?? 0} lead(s) — outreach queued`, '✅');
     loadLeadsView();
   } catch (e) { toast('Bulk approve failed', '❌'); }
 }

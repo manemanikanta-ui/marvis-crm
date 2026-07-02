@@ -978,8 +978,20 @@ body {
                 <div class="menu-item" onclick="applySort('created_asc')">Oldest</div>
                 <div class="menu-sep"></div>
                 <div class="menu-label">Bulk Actions</div>
+                <div class="menu-item" onclick="bulkApproveSelectedLeads()">✅ Approve Selected</div>
                 <div class="menu-item" onclick="bulkEnrichSelected()">✨ Enrich Selected</div>
                 <div class="menu-item" onclick="bulkEmailSelected()">📧 Email Selected</div>
+                <div class="menu-item" onclick="exportSelectedLeads()">📤 Export Selected (CSV)</div>
+                <div class="menu-sep"></div>
+                <div class="menu-label">Move to Status</div>
+                <div class="menu-item" onclick="moveSelectedTo('approved')">→ Approved</div>
+                <div class="menu-item" onclick="moveSelectedTo('contacted')">→ Contacted</div>
+                <div class="menu-item" onclick="moveSelectedTo('interested')">→ Interested</div>
+                <div class="menu-item" onclick="moveSelectedTo('booked')">→ Booked</div>
+                <div class="menu-item" onclick="moveSelectedTo('converted')">→ Converted</div>
+                <div class="menu-item" onclick="moveSelectedTo('declined')">→ Declined</div>
+                <div class="menu-item" onclick="moveSelectedTo('paused')">→ Paused</div>
+                <div class="menu-sep"></div>
                 <div class="menu-item" style="color:var(--red)" onclick="bulkDeleteSelected()">🗑 Delete Selected</div>
               </div>
             </div>
@@ -2313,6 +2325,119 @@ async function bulkDeleteSelected() {
     selectedLeadIds.clear();
     loadLeadsView();
   } catch (e) { toast('Bulk delete failed', '❌'); }
+}
+
+// ─────────────────────────────────────────────
+// SHARED BULK HELPERS — reused by every section's dropdown (define once).
+// Statuses a lead can be moved to via the standard "Move to status" action.
+// ─────────────────────────────────────────────
+const MOVE_STATUSES = ['approved', 'contacted', 'interested', 'booked', 'converted', 'declined', 'paused'];
+
+// Run an async op over ids sequentially with a small delay — never parallel, so
+// we don't hammer the DB. Collects failed ids; one failure never aborts the rest.
+async function _bulkSequential(ids, fn) {
+  let ok = 0; const failed = [];
+  for (const id of ids) {
+    try {
+      const r = await fn(id);
+      if (r === false) failed.push(id); else ok++;
+    } catch (e) { failed.push(id); }
+    await new Promise(res => setTimeout(res, 50));
+  }
+  return { ok, failed };
+}
+
+// Move a set of leads to a target status (client-side loop over PATCH /leads/{id}).
+async function bulkMoveStatus(ids, status, onDone) {
+  if (!ids.length) { toast('No items selected', '⚠️'); return; }
+  const { ok, failed } = await _bulkSequential(ids, async id => {
+    const r = await fetch(`${API}/leads/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    return r.ok;
+  });
+  toast(failed.length ? `Moved ${ok} of ${ids.length} to ${status} — ${failed.length} failed`
+                      : `Moved ${ok} lead(s) to ${status}`, failed.length ? '⚠️' : '✅');
+  if (typeof onDone === 'function') onDone();
+}
+
+// Approve a set of leads (client-side loop over POST /approve-outreach/{id}).
+async function bulkApproveIds(ids, onDone) {
+  if (!ids.length) { toast('No items selected', '⚠️'); return; }
+  const { ok, failed } = await _bulkSequential(ids, async id => {
+    const r = await fetch(`${API}/approve-outreach/${id}`, { method: 'POST' });
+    return r.ok;
+  });
+  toast(failed.length ? `Approved ${ok} of ${ids.length} — ${failed.length} failed`
+                      : `Approved ${ok} lead(s) — outreach queued`, failed.length ? '⚠️' : '✅');
+  if (typeof onDone === 'function') onDone();
+}
+
+// Enrich a set of leads via the batch endpoint (single background call).
+async function bulkEnrichIds(ids, onDone) {
+  if (!ids.length) { toast('No items selected', '⚠️'); return; }
+  try {
+    const res = await fetch(`${API}/leads/bulk-enrich`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_ids: ids })
+    }).then(r => r.json());
+    toast(res.message || `Enriching ${ids.length} leads`, '✨');
+  } catch (e) { toast('Bulk enrich failed', '❌'); }
+  if (typeof onDone === 'function') onDone();
+}
+
+// Delete a set of leads via the batch endpoint (activities-first, FK-safe).
+async function bulkDeleteIds(ids, onDone) {
+  if (!ids.length) { toast('No items selected', '⚠️'); return; }
+  try {
+    const res = await fetch(`${API}/leads/bulk-delete`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_ids: ids })
+    }).then(r => r.json());
+    toast(`Deleted ${res.deleted ?? ids.length} lead(s)`, '🗑');
+  } catch (e) { toast('Bulk delete failed', '❌'); }
+  if (typeof onDone === 'function') onDone();
+}
+
+// Client-side CSV export of the given lead objects (no backend).
+function exportLeadsCSV(leads, filename) {
+  if (!leads || !leads.length) { toast('Nothing to export', '⚠️'); return; }
+  const cols = ['id','name','business_type','phone','email','website','city','address','rating','reviews','score','status','created_at'];
+  const esc = v => {
+    const s = (v == null ? '' : String(v));
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const rows = [cols.join(',')].concat(leads.map(l => cols.map(c => esc(l[c])).join(',')));
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename || 'leads.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast(`Exported ${leads.length} lead(s)`, '📤');
+}
+
+// ── All Leads wrappers (operate on selectedLeadIds) ──
+function moveSelectedTo(status) {
+  closeLeadsMenu();
+  const ids = [...selectedLeadIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Move ${ids.length} selected lead(s) to "${status}"?`)) return;
+  bulkMoveStatus(ids, status, () => { selectedLeadIds.clear(); loadLeadsView(); });
+}
+function bulkApproveSelectedLeads() {
+  closeLeadsMenu();
+  const ids = [...selectedLeadIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Approve ${ids.length} selected lead(s)? Outreach will be queued.`)) return;
+  bulkApproveIds(ids, () => loadLeadsView());
+}
+function exportSelectedLeads() {
+  closeLeadsMenu();
+  const chosen = (leadsMaster || []).filter(l => selectedLeadIds.has(l.id));
+  if (!chosen.length) { toast('No leads selected', '⚠️'); return; }
+  exportLeadsCSV(chosen, 'marvis-leads.csv');
 }
 
 function filterLeads(status, el) {

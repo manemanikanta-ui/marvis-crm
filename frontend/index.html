@@ -1170,7 +1170,38 @@ body {
         <div class="panel" style="display:flex;flex-direction:column;">
           <div class="panel-header">
             <div class="panel-title">📋 Found Leads</div>
-            <button class="btn btn-ghost btn-sm" onclick="showView('leads')">View all →</button>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="found-select-all" title="Select all found" onclick="foundToggleSelectAll(this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;">
+              <span id="found-selected-count" style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;"></span>
+              <div style="position:relative;">
+                <button class="btn btn-ghost btn-sm" title="Actions" style="font-size:18px;line-height:1;padding:4px 10px;" onclick="event.stopPropagation();toggleFoundMenu()">⋮</button>
+                <div id="found-menu" style="display:none;position:absolute;right:0;top:110%;z-index:1000;background:#1a1f2e;border:1px solid #2d3748;border-radius:8px;min-width:210px;box-shadow:0 8px 24px rgba(0,0,0,0.4);padding:6px;">
+                  <div class="menu-item" onclick="foundSelectAll()">☑ Select All</div>
+                  <div class="menu-item" onclick="foundDeselectAll()">▢ Deselect All</div>
+                  <div class="menu-sep"></div>
+                  <div class="menu-label">Sort</div>
+                  <div class="menu-item" onclick="foundApplySort('score_desc')">Score ↓</div>
+                  <div class="menu-item" onclick="foundApplySort('score_asc')">Score ↑</div>
+                  <div class="menu-sep"></div>
+                  <div class="menu-label">Bulk Actions</div>
+                  <div class="menu-item" onclick="foundApproveSelected()">✅ Approve Selected</div>
+                  <div class="menu-item" onclick="foundEnrichSelected()">✨ Enrich Selected</div>
+                  <div class="menu-item" onclick="foundExportSelected()">📤 Export Selected (CSV)</div>
+                  <div class="menu-sep"></div>
+                  <div class="menu-label">Move to Status</div>
+                  <div class="menu-item" onclick="foundMoveSelectedTo('approved')">→ Approved</div>
+                  <div class="menu-item" onclick="foundMoveSelectedTo('contacted')">→ Contacted</div>
+                  <div class="menu-item" onclick="foundMoveSelectedTo('interested')">→ Interested</div>
+                  <div class="menu-item" onclick="foundMoveSelectedTo('booked')">→ Booked</div>
+                  <div class="menu-item" onclick="foundMoveSelectedTo('converted')">→ Converted</div>
+                  <div class="menu-item" onclick="foundMoveSelectedTo('declined')">→ Declined</div>
+                  <div class="menu-item" onclick="foundMoveSelectedTo('paused')">→ Paused</div>
+                  <div class="menu-sep"></div>
+                  <div class="menu-item" style="color:var(--red)" onclick="foundDeleteSelected()">🗑 Delete Selected</div>
+                </div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="showView('leads')">View all →</button>
+            </div>
           </div>
           <div id="found-leads-list" style="flex:1;overflow-y:auto;max-height:480px;">
             <div class="empty-state">
@@ -4275,30 +4306,135 @@ function resetScrapeBtn() {
   btn.textContent = '🚀 Find Leads';
 }
 
+// ── Find Leads: selection + dropdown (mirrors the All Leads standard) ──
+let foundLeads = [];
+let foundSelectedIds = new Set();
+let foundSort = 'score_desc';
+
+function toggleFoundMenu() {
+  const m = document.getElementById('found-menu');
+  if (m) m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none';
+}
+function closeFoundMenu() {
+  const m = document.getElementById('found-menu');
+  if (m) m.style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#found-menu')) closeFoundMenu();
+});
+
 function displayFoundLeads(leads) {
-   const container = document.getElementById('found-leads-list');
-   if (!leads || leads.length === 0) {
-     container.innerHTML = '<div class="empty-state"><div class="empty-title">No leads found</div></div>';
-     return;
-   }
-   container.innerHTML = leads.map(l => `
-     <div style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;"
+  foundLeads = leads || [];
+  foundSelectedIds.clear();
+  renderFoundLeads();
+}
+
+function _foundSorted() {
+  return foundLeads.slice().sort((a, b) =>
+    foundSort === 'score_asc' ? (a.score || 0) - (b.score || 0) : (b.score || 0) - (a.score || 0));
+}
+
+function renderFoundLeads() {
+  const container = document.getElementById('found-leads-list');
+  if (!container) return;
+  if (!foundLeads || foundLeads.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-title">No leads found</div></div>';
+    updateFoundSelectionUI();
+    return;
+  }
+  container.innerHTML = _foundSorted().map(l => {
+    const checked = foundSelectedIds.has(l.id) ? ' checked' : '';
+    const cb = l.id
+      ? '<div onclick="event.stopPropagation()" style="flex-shrink:0;padding-top:1px;"><input type="checkbox" class="found-check"' + checked + ' onclick="toggleFoundSelection(' + l.id + ', this.checked)" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;"></div>'
+      : '';
+    return `
+     <div style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;display:flex;gap:10px;align-items:flex-start;"
        onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''"
        ${l.id ? `onclick="openLeadFromFindPage(${l.id})"` : ''}>
-       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-         <div style="overflow:hidden;">
-           <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${l.name}</div>
-           <div style="font-size:11px;color:var(--text3);margin-top:2px;">${l.business_type || ''}</div>
+       ${cb}
+       <div style="flex:1;min-width:0;">
+         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+           <div style="overflow:hidden;">
+             <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${l.name}</div>
+             <div style="font-size:11px;color:var(--text3);margin-top:2px;">${l.business_type || ''}</div>
+           </div>
+           <span style="font-size:11px;font-family:'DM Mono',monospace;color:${l.score>=75?'var(--green)':l.score>=50?'var(--yellow)':'var(--text3)'};flex-shrink:0">${l.score}</span>
          </div>
-         <span style="font-size:11px;font-family:'DM Mono',monospace;color:${l.score>=75?'var(--green)':l.score>=50?'var(--yellow)':'var(--text3)'};flex-shrink:0">${l.score}</span>
-       </div>
-       <div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--text3);">
-         ${l.phone ? `<span>📞 ${l.phone}</span>` : ''}
-         ${l.email ? `<span style="color:var(--green)">✉ ${l.email}</span>` : ''}
+         <div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--text3);">
+           ${l.phone ? `<span>📞 ${l.phone}</span>` : ''}
+           ${l.email ? `<span style="color:var(--green)">✉ ${l.email}</span>` : ''}
+         </div>
        </div>
      </div>
-   `).join('');
- }
+   `;
+  }).join('');
+  updateFoundSelectionUI();
+}
+
+function updateFoundSelectionUI() {
+  const label = document.getElementById('found-selected-count');
+  if (label) label.textContent = foundSelectedIds.size ? `${foundSelectedIds.size} selected` : '';
+  const cb = document.getElementById('found-select-all');
+  const ids = foundLeads.filter(l => l.id).map(l => l.id);
+  if (cb) cb.checked = ids.length > 0 && ids.every(id => foundSelectedIds.has(id));
+}
+function toggleFoundSelection(id, checked) {
+  if (checked) foundSelectedIds.add(id); else foundSelectedIds.delete(id);
+  updateFoundSelectionUI();
+}
+function foundToggleSelectAll(checked) {
+  foundLeads.forEach(l => { if (l.id) { if (checked) foundSelectedIds.add(l.id); else foundSelectedIds.delete(l.id); } });
+  renderFoundLeads();
+}
+function foundSelectAll() {
+  foundLeads.forEach(l => { if (l.id) foundSelectedIds.add(l.id); });
+  renderFoundLeads(); closeFoundMenu();
+  toast(`${foundSelectedIds.size} selected`, '☑');
+}
+function foundDeselectAll() {
+  foundSelectedIds.clear(); renderFoundLeads(); closeFoundMenu();
+}
+function foundApplySort(key) {
+  foundSort = key; closeFoundMenu(); renderFoundLeads();
+}
+function foundApproveSelected() {
+  closeFoundMenu();
+  const ids = [...foundSelectedIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Approve ${ids.length} selected lead(s)? Outreach will be queued.`)) return;
+  bulkApproveIds(ids, () => { foundSelectedIds.clear(); renderFoundLeads(); });
+}
+function foundEnrichSelected() {
+  closeFoundMenu();
+  const ids = [...foundSelectedIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Generate AI outreach for ${ids.length} selected lead(s)?\nThis uses Claude API credits.`)) return;
+  bulkEnrichIds(ids);
+}
+function foundMoveSelectedTo(status) {
+  closeFoundMenu();
+  const ids = [...foundSelectedIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Move ${ids.length} selected lead(s) to "${status}"?`)) return;
+  bulkMoveStatus(ids, status, () => { foundSelectedIds.clear(); renderFoundLeads(); });
+}
+function foundDeleteSelected() {
+  closeFoundMenu();
+  const ids = [...foundSelectedIds];
+  if (!ids.length) { toast('No leads selected', '⚠️'); return; }
+  if (!confirm(`Delete ${ids.length} selected lead(s)? This cannot be undone.`)) return;
+  bulkDeleteIds(ids, () => {
+    foundSelectedIds.clear();
+    foundLeads = foundLeads.filter(l => !ids.includes(l.id));
+    renderFoundLeads();
+  });
+}
+function foundExportSelected() {
+  closeFoundMenu();
+  const chosen = foundLeads.filter(l => foundSelectedIds.has(l.id));
+  if (!chosen.length) { toast('No leads selected', '⚠️'); return; }
+  exportLeadsCSV(chosen, 'marvis-found-leads.csv');
+}
 
 function showLeadsOnMap(leads, city, state, country) {
   const mapPlaceholder = document.getElementById('map-placeholder');

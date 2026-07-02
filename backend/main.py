@@ -1686,17 +1686,18 @@ async def campaign_stats():
 
 @app.get("/api/analytics/emails")
 async def analytics_emails(limit: int = 100):
-    """Return OUTBOUND email activity only (sent emails — never inbound replies).
-    direction defaults to 'outbound', so this keeps every sent row and excludes
-    inbound email_reply rows that share channel='email'."""
+    """Return ONLY emails that were actually sent — channel='email', outbound,
+    status='sent'. This deliberately excludes scheduled-but-not-sent rows
+    (followup_scheduled, status='pending'), failed sends, and inbound replies,
+    so the 'Emails Sent' list contains exactly the emails that went out."""
     conn = get_db()
     rows = conn.execute("""
         SELECT a.*, l.name AS lead_name, l.email AS lead_email
         FROM activities a
         LEFT JOIN leads l ON a.lead_id = l.id
-        WHERE (a.channel = 'email'
-               OR a.type IN ('email', 'email_sent', 'sequence_email', 'followup_scheduled'))
+        WHERE a.channel = 'email'
           AND a.direction = 'outbound'
+          AND a.status = 'sent'
         ORDER BY a.created_at DESC
         LIMIT ?
     """, (limit,)).fetchall()

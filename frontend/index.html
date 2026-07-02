@@ -440,6 +440,9 @@ body {
   padding: 14px 16px;
 }
 
+/* Each analytics list panel scrolls internally so long lists don't grow the page. */
+.analytics-scroll { max-height: 360px; overflow-y: auto; }
+
 .analytics-label {
   font-size: 11px;
   color: var(--text3);
@@ -1310,8 +1313,9 @@ body {
       <div class="panel" id="analytics-emails" style="margin-bottom:16px;">
         <div class="panel-header">
           <div class="panel-title">📧 Emails Sent <span id="analytics-emails-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+          <button class="btn btn-ghost btn-sm" onclick="exportAnalyticsCSV('emails')">📤 Export CSV</button>
         </div>
-        <div id="analytics-emails-body" style="padding:0 20px 20px;">
+        <div id="analytics-emails-body" class="analytics-scroll" style="padding:0 20px 20px;">
           <div class="loading"><div class="spinner"></div>Loading...</div>
         </div>
       </div>
@@ -1320,8 +1324,9 @@ body {
       <div class="panel" id="analytics-whatsapp" style="margin-bottom:16px;">
         <div class="panel-header">
           <div class="panel-title">📱 WhatsApp Messages <span id="analytics-whatsapp-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+          <button class="btn btn-ghost btn-sm" onclick="exportAnalyticsCSV('whatsapp')">📤 Export CSV</button>
         </div>
-        <div id="analytics-whatsapp-body" style="padding:0 20px 20px;">
+        <div id="analytics-whatsapp-body" class="analytics-scroll" style="padding:0 20px 20px;">
           <div class="loading"><div class="spinner"></div>Loading...</div>
         </div>
       </div>
@@ -1330,8 +1335,9 @@ body {
       <div class="panel" id="analytics-replies" style="margin-bottom:16px;">
         <div class="panel-header">
           <div class="panel-title">💬 Replies Received <span id="analytics-replies-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+          <button class="btn btn-ghost btn-sm" onclick="exportAnalyticsCSV('replies')">📤 Export CSV</button>
         </div>
-        <div id="analytics-replies-body" style="padding:0 20px 20px;">
+        <div id="analytics-replies-body" class="analytics-scroll" style="padding:0 20px 20px;">
           <div class="loading"><div class="spinner"></div>Loading...</div>
         </div>
       </div>
@@ -1341,7 +1347,7 @@ body {
         <div class="panel-header">
           <div class="panel-title">⭐ Interested <span id="analytics-interested-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
         </div>
-        <div id="analytics-interested-body" style="padding:16px 20px;">
+        <div id="analytics-interested-body" class="analytics-scroll" style="padding:16px 20px;">
           <div class="loading"><div class="spinner"></div>Loading...</div>
         </div>
       </div>
@@ -1351,7 +1357,7 @@ body {
         <div class="panel-header">
           <div class="panel-title">📅 Booked <span id="analytics-booked-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
         </div>
-        <div id="analytics-booked-body" style="padding:16px 20px;">
+        <div id="analytics-booked-body" class="analytics-scroll" style="padding:16px 20px;">
           <div class="loading"><div class="spinner"></div>Loading...</div>
         </div>
       </div>
@@ -2635,6 +2641,26 @@ function aClassBadge(c) {
   const color = { interested: '#48bb78', pricing: '#4a9eff', callback: '#ecc94b', not_interested: '#fc8181' }[v] || '#a0aec0';
   return '<span style="background:' + color + '22;border:1px solid ' + color + ';color:' + color
     + ';padding:2px 8px;border-radius:10px;font-size:11px;">' + aEsc(v) + '</span>';
+}
+
+// Analytics is read-only — the only bulk-ish action is exporting a panel's rows.
+// Uses the already-fetched rows in window._analyticsRows[key] (set by loadAnalyticsTable).
+function exportAnalyticsCSV(key) {
+  const rows = (window._analyticsRows && window._analyticsRows[key]) || [];
+  if (!rows.length) { toast('Nothing to export', '⚠️'); return; }
+  const esc = v => { const s = (v == null ? '' : String(v)); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const header = ['Lead', 'Email', 'Phone', 'Channel', 'Status', 'Classification', 'Content', 'Date'];
+  const lines = [header.join(',')].concat(rows.map(r => [
+    r.lead_name, r.lead_email, r.lead_phone, r.channel, r.status, r.classification,
+    cleanActivityContent(r.content || ''), (r.sent_at || r.created_at)
+  ].map(esc).join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'marvis-analytics-' + key + '.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast(`Exported ${rows.length} row(s)`, '📤');
 }
 
 function loadAnalytics() {

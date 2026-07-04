@@ -348,6 +348,26 @@ def _load_lead_machine_modules():
     return scrape_leads, filter_and_rank, save_results, enrich_leads
 
 
+def _sanitise_email_body(raw: str) -> str:
+    """Extract clean body text from raw lead-machine output. Defends against the
+    lead machine ever emitting a JSON/```json-fenced blob instead of plain text, so
+    a malformed value can never reach a send. Returns plain text unchanged."""
+    if not raw:
+        return ""
+    stripped = raw.strip()
+    if stripped.startswith("{") or stripped.startswith("```"):
+        try:
+            if stripped.startswith("```"):
+                stripped = stripped.split("```")[1]
+                if stripped.startswith("json"):
+                    stripped = stripped[4:]
+            parsed = json.loads(stripped.strip())
+            return parsed.get("body", "")
+        except Exception:
+            return ""
+    return raw
+
+
 def _import_enriched_leads(file_path: Path, run_started_at: datetime, campaign_name: str = "") -> Dict[str, Any]:
     if not file_path.exists():
         return {"imported": 0, "skipped": 0, "new_leads": []}
@@ -395,8 +415,8 @@ def _import_enriched_leads(file_path: Path, run_started_at: datetime, campaign_n
                 int(row.get("reviews", 0) or 0),
                 int(row.get("score", 0) or 0),
                 str(row.get("whatsapp_message", "")).strip(),
-                str(row.get("email_subject", "")).strip(),
-                str(row.get("email_body", "")).strip(),
+                _sanitise_email_body(str(row.get("email_subject", "")).strip()),
+                _sanitise_email_body(str(row.get("email_body", "")).strip()),
                 run_started_at.isoformat(),
                 run_started_at.isoformat(),
             ),

@@ -1778,6 +1778,16 @@ body {
                 <input class="field-value" id="scrape-max-total" type="number" min="1" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('scrape_max_leads_total', this.value)">
               </div>
             </div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div>
+                <div class="field-label">Grid size (N × N)</div>
+                <input class="field-value" id="scrape-grid-size" type="number" min="1" max="8" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('scrape_grid_size', this.value)">
+              </div>
+              <div>
+                <div class="field-label">Search radius (km)</div>
+                <input class="field-value" id="scrape-grid-radius" type="number" min="1" max="20" step="0.5" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('scrape_grid_radius_km', this.value)">
+              </div>
+            </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-primary btn-sm" id="scrape-start-btn" onclick="startScrapeSession()">Start Scraping Session</button>
               <button class="btn btn-outline btn-sm" onclick="stopScrapeSession()">Stop Session</button>
@@ -3437,6 +3447,7 @@ async function saveSetting(key, value) {
 // SCRAPING SESSION (hourly, configurable)
 // ─────────────────────────────────────────────
 let _scrapeConfigLoaded = false;
+let _scrapeGridSize = 4, _scrapeCategory = 'dental clinics', _scrapeCities = [];
 function populateScrapeConfig(sc) {
   if (_scrapeConfigLoaded) return;   // fill inputs once; don't clobber while editing
   const set = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v; };
@@ -3445,6 +3456,8 @@ function populateScrapeConfig(sc) {
   set('scrape-per-hour', sc.leads_per_hour || 20);
   set('scrape-max-total', sc.max_total || 100);
   set('scrape-end-time', sc.end_time_ist || '17:00');
+  set('scrape-grid-size', sc.grid_size || 4);
+  set('scrape-grid-radius', sc.grid_radius_km || 3);
   _scrapeConfigLoaded = true;
 }
 function _agoMin(iso) {
@@ -3452,6 +3465,9 @@ function _agoMin(iso) {
   catch (_) { return ''; }
 }
 function renderScrapeSession(sc) {
+  _scrapeGridSize = sc.grid_size || 4;
+  _scrapeCategory = sc.category || 'dental clinics';
+  _scrapeCities = (sc.cities || '').replace(/\n/g, ',').split(',').map(s => s.trim()).filter(Boolean);
   const active = !!sc.session_active;
   const badge = document.getElementById('scrape-session-badge');
   const statusEl = document.getElementById('scrape-session-status');
@@ -3501,16 +3517,28 @@ async function loadScrapeHistory() {
   if (!list) return;
   try {
     const rows = await fetch(`${API}/scrape-history`).then(r => r.json());
-    if (!rows || !rows.length) { list.innerHTML = '<div style="color:var(--text3);padding:6px 0;">No scrapes yet.</div>'; return; }
-    list.innerHTML = rows.map(r => {
-      const ex = r.exhausted === true || r.exhausted === 1;
-      const badge = ex
-        ? '<span style="color:var(--red)">✗ Exhausted</span> <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px;" onclick="resetScrapeCity(\'' + _escq(r.city) + '\',\'' + _escq(r.category) + '\')">Reset</button>'
-        : '<span style="color:var(--green)">✓ Active</span>';
-      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--border);">'
-        + '<span>' + r.city + ' / ' + r.category + '</span>'
-        + '<span style="display:flex;align-items:center;gap:8px;color:var(--text3);"><span>' + (r.leads_found || 0) + ' new</span> ' + badge + '</span></div>';
-    }).join('');
+    const total = (_scrapeGridSize || 4) * (_scrapeGridSize || 4);
+    const groups = {};
+    (rows || []).forEach(r => {
+      const k = r.city + '|' + r.category;
+      if (!groups[k]) groups[k] = { city: r.city, category: r.category, cells: 0, leads: 0 };
+      groups[k].cells += 1;
+      groups[k].leads += (r.leads_found || 0);
+    });
+    const cat = _scrapeCategory || 'dental clinics';
+    const cities = (_scrapeCities && _scrapeCities.length) ? _scrapeCities.slice() : [];
+    Object.values(groups).forEach(g => { if (g.category === cat && !cities.includes(g.city)) cities.push(g.city); });
+    if (!cities.length && !Object.keys(groups).length) {
+      list.innerHTML = '<div style="color:var(--text3);padding:6px 0;">No scrapes yet.</div>'; return;
+    }
+    const row = (city, g) => {
+      const prog = g ? `Grid: ${g.cells}/${total} cells done · ${g.leads} leads found` : 'Grid: not started';
+      const reset = g ? ` <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px;" onclick="resetScrapeCity('${_escq(city)}','${_escq(cat)}')">Reset City</button>` : '';
+      return `<div style="padding:8px 0;border-bottom:1px dashed var(--border);">
+        <div style="display:flex;justify-content:space-between;align-items:center;"><b>${city} / ${cat}</b>${reset}</div>
+        <div style="color:var(--text3);font-size:12px;margin-top:2px;">${prog}</div></div>`;
+    };
+    list.innerHTML = cities.map(city => row(city, groups[city + '|' + cat])).join('');
   } catch (e) { list.innerHTML = '<div style="color:var(--text3);padding:6px 0;">Could not load history.</div>'; }
 }
 async function resetScrapeCity(city, category) {

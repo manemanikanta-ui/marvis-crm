@@ -515,10 +515,11 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             city TEXT,
             category TEXT,
+            grid_index INTEGER DEFAULT 0,
             last_scraped_at TEXT,
             leads_found INTEGER DEFAULT 0,
             exhausted BOOLEAN DEFAULT FALSE,
-            UNIQUE(city, category)
+            UNIQUE(city, category, grid_index)
         );
 
         CREATE TABLE IF NOT EXISTS settings (
@@ -565,6 +566,9 @@ def init_db():
         INSERT OR IGNORE INTO settings VALUES ('scrape_city_index', '0');
         INSERT OR IGNORE INTO settings VALUES ('scrape_session_active', 'false');
         INSERT OR IGNORE INTO settings VALUES ('scrape_today_total', '0');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_grid_size', '4');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_grid_radius_km', '3');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_grid_index', '0');
     """)
     # Commit the table creation BEFORE any ALTER runs. On PostgreSQL a redundant
     # ALTER (column already present from the CREATE above) aborts the transaction;
@@ -1963,8 +1967,8 @@ async def scrape_history():
         conn = get_db()
         try:
             rows = [dict(r) for r in conn.execute(
-                "SELECT id, city, category, last_scraped_at, leads_found, exhausted "
-                "FROM scrape_history ORDER BY city, category"
+                "SELECT id, city, category, grid_index, last_scraped_at, leads_found, exhausted "
+                "FROM scrape_history ORDER BY city, category, grid_index"
             ).fetchall()]
         except Exception:
             rows = []
@@ -1982,10 +1986,14 @@ class ScrapeHistoryReset(BaseModel):
 async def scrape_history_reset(req: ScrapeHistoryReset):
     def _reset():
         conn = get_db()
+        # Clear every grid cell for this city+category so it is scraped afresh, and
+        # rewind the round-robin pointer so the session revisits it.
         conn.execute(
-            "UPDATE scrape_history SET exhausted = ? WHERE city = ? AND category = ?",
-            (False, req.city, req.category),
+            "DELETE FROM scrape_history WHERE city = ? AND category = ?",
+            (req.city, req.category),
         )
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('scrape_city_index', '0')")
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('scrape_grid_index', '0')")
         conn.commit()
         conn.close()
     await asyncio.to_thread(_reset)
@@ -2785,6 +2793,41 @@ async def startup():
     except Exception:
         pass
     logger.info("startup: completed migration place_id column")
+
+    # Migration: scrape_history grid_index column + relax the old UNIQUE(city,category)
+    # so grid cells per city+category are tracked independently.
+    logger.info("startup: starting migration scrape_history grid_index")
+    try:
+        from db import table_columns
+        conn = get_db()
+        sh_cols = table_columns(conn, "scrape_history")
+        conn.close()
+        if sh_cols and "grid_index" not in sh_cols:
+            conn = get_db()
+            try:
+                conn.execute("ALTER TABLE scrape_history ADD COLUMN grid_index INTEGER DEFAULT 0")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+            try:
+                conn.execute("ALTER TABLE scrape_history DROP CONSTRAINT IF EXISTS scrape_history_city_category_key")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+            try:
+                # Clear stale pre-grid (city,category) rows — their exhausted flags were
+                # set by the old text-search scraper and are meaningless for grid cells.
+                conn.execute("DELETE FROM scrape_history")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+            conn.close()
+            print("✅ Migration: scrape_history grid_index added + stale rows cleared")
+        else:
+            logger.info("startup: scrape_history grid_index present or table absent, skipping")
+    except Exception:
+        pass
+    logger.info("startup: completed migration scrape_history grid_index")
 
     # One-time migration: re-score legacy leads with the current scoring model
     logger.info("startup: starting migration recompute_all_scores")

@@ -1005,12 +1005,12 @@ def _scrape_cities_list(settings) -> List[str]:
     return [c.strip() for c in raw.replace("\n", ",").split(",") if c.strip()]
 
 
-def _is_city_exhausted(city: str, category: str) -> bool:
+def _is_cell_exhausted(city: str, category: str, grid_index: int) -> bool:
     try:
         conn = get_db()
         row = conn.execute(
-            "SELECT exhausted FROM scrape_history WHERE city = ? AND category = ?",
-            (city, category),
+            "SELECT exhausted FROM scrape_history WHERE city = ? AND category = ? AND grid_index = ?",
+            (city, category, grid_index),
         ).fetchone()
         conn.close()
         return bool(row and row[0])
@@ -1018,25 +1018,56 @@ def _is_city_exhausted(city: str, category: str) -> bool:
         return False
 
 
-def _upsert_scrape_history(city: str, category: str, new_leads: int) -> None:
+def _cells_done_count(city: str, category: str) -> int:
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM scrape_history WHERE city = ? AND category = ?", (city, category)
+        ).fetchone()
+        conn.close()
+        return int(row[0] if row else 0)
+    except Exception:
+        return 0
+
+
+def _next_work_cell(cities, category, city_idx, grid_idx, total_cells):
+    """Next (city_idx, grid_idx) whose cell isn't exhausted, scanning forward.
+    Returns None when every cell of every city is exhausted."""
+    ci, gi = city_idx, grid_idx
+    for _ in range(len(cities) * total_cells + 1):
+        if ci >= len(cities):
+            return None
+        if gi >= total_cells:
+            ci += 1
+            gi = 0
+            continue
+        if _is_cell_exhausted(cities[ci], category, gi):
+            gi += 1
+            continue
+        return (ci, gi)
+    return None
+
+
+def _upsert_scrape_history(city: str, category: str, grid_index: int, new_leads: int) -> None:
     now = _now_ist().isoformat()
     exhausted = (new_leads == 0)
     try:
         conn = get_db()
         row = conn.execute(
-            "SELECT id FROM scrape_history WHERE city = ? AND category = ?", (city, category)
+            "SELECT id FROM scrape_history WHERE city = ? AND category = ? AND grid_index = ?",
+            (city, category, grid_index),
         ).fetchone()
         if row:
             conn.execute(
                 "UPDATE scrape_history SET last_scraped_at = ?, leads_found = ?, exhausted = ? "
-                "WHERE city = ? AND category = ?",
-                (now, new_leads, exhausted, city, category),
+                "WHERE city = ? AND category = ? AND grid_index = ?",
+                (now, new_leads, exhausted, city, category, grid_index),
             )
         else:
             conn.execute(
-                "INSERT INTO scrape_history (city, category, last_scraped_at, leads_found, exhausted) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (city, category, now, new_leads, exhausted),
+                "INSERT INTO scrape_history (city, category, grid_index, last_scraped_at, leads_found, exhausted) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (city, category, grid_index, now, new_leads, exhausted),
             )
         conn.commit()
         conn.close()
@@ -1048,8 +1079,17 @@ def _end_scrape_session(total: int, reason: str) -> None:
     _set_setting("scrape_session_active", "false")
     _logger.info("Scraping session ended (%s) — %s leads today", reason, total)
     try:
+        settings = _settings_dict()
+        cities = _scrape_cities_list(settings)
+        category = settings.get("scrape_category", "dental clinics")
+        total_cells = int(settings.get("scrape_grid_size", 4) or 4) ** 2
+        lines = []
+        for c in cities:
+            done = _cells_done_count(c, category)
+            lines.append(f"{c}: {done}/{total_cells} grid cells done" if done else f"{c}: not started")
         from telegram_notify import notify
-        notify(f"✅ <b>Scraping session ended</b>\n{total} leads total today")
+        notify("✅ <b>Scraping session complete</b>\n"
+               f"{total} new leads · {category}\n" + "\n".join(lines))
     except Exception:
         pass
     emit_hud_event("scrape_session", {"active": False, "today_total": total})
@@ -1060,50 +1100,63 @@ def _run_one_scrape(settings, now: datetime) -> Dict[str, Any]:
     if not cities:
         return {"new_leads": 0, "reason": "no_cities"}
     category = settings.get("scrape_category", "dental clinics") or "dental clinics"
+    grid_size = int(settings.get("scrape_grid_size", 4) or 4)
+    radius_km = float(settings.get("scrape_grid_radius_km", 3) or 3)
+    total_cells = grid_size * grid_size
     per_hour = int(settings.get("scrape_leads_per_hour", 20) or 20)
     max_total = int(settings.get("scrape_max_leads_total", 100) or 100)
     total = int(settings.get("scrape_today_total", 0) or 0)
-    idx = int(settings.get("scrape_city_index", 0) or 0)
-
-    # Next non-exhausted city (round-robin); end the session if every city is exhausted.
-    chosen_city = None
-    chosen_idx = idx
-    for step in range(len(cities)):
-        ci = (idx + step) % len(cities)
-        if not _is_city_exhausted(cities[ci], category):
-            chosen_city, chosen_idx = cities[ci], ci
-            break
-    if chosen_city is None:
-        _end_scrape_session(total, reason="all_exhausted")
-        return {"new_leads": 0, "reason": "all_exhausted"}
+    city_idx = int(settings.get("scrape_city_index", 0) or 0)
+    grid_idx = int(settings.get("scrape_grid_index", 0) or 0)
 
     want = min(per_hour, max(0, max_total - total))
     if want <= 0:
         _end_scrape_session(total, reason="cap")
         return {"new_leads": 0, "reason": "cap"}
 
-    try:
-        from lead_scraper import scrape_and_import_city
-        res = scrape_and_import_city(category, chosen_city, max_results=want,
-                                     campaign_name=f"{category} — hourly", source="hourly_scrape")
-    except Exception as exc:
-        _logger.error("scrape run error for %s: %s", chosen_city, exc)
-        res = {"found": 0, "new_leads": 0}
+    work = _next_work_cell(cities, category, city_idx, grid_idx, total_cells)
+    if work is None:
+        _end_scrape_session(total, reason="all_exhausted")
+        return {"new_leads": 0, "reason": "all_exhausted"}
+    city_idx, grid_idx = work
+    city = cities[city_idx]
 
+    from lead_scraper import generate_grid, scrape_grid_cell
+    # Spacing a touch wider than the radius so adjacent cells overlap slightly.
+    points = generate_grid(city, grid_size, radius_km + 1.0)
+    if not points:
+        # Centre unresolved (geocode failed) — mark the whole city's cells done so the
+        # round-robin advances instead of looping on it.
+        for g in range(total_cells):
+            _upsert_scrape_history(city, category, g, 0)
+        _set_setting("scrape_city_index", str(city_idx + 1))
+        _set_setting("scrape_grid_index", "0")
+        _logger.warning("No grid for %s (centre unresolved) — skipping city", city)
+        return {"new_leads": 0, "reason": "no_grid", "city": city}
+
+    lat, lng = points[grid_idx % len(points)]
+    res = scrape_grid_cell(category, city, lat, lng, radius=int(radius_km * 1000),
+                           max_results=want, source="grid_scrape")
     new_leads = int(res.get("new_leads", 0) or 0)
     total += new_leads
     _set_setting("scrape_today_total", str(total))
-    _set_setting("scrape_city_index", str((chosen_idx + 1) % len(cities)))
-    _set_setting("scrape_last_run", now.isoformat())
-    _upsert_scrape_history(chosen_city, category, new_leads)
+    _upsert_scrape_history(city, category, grid_idx, new_leads)
 
-    try:
-        from telegram_notify import notify
-        notify(f"🔍 <b>Scraped {chosen_city}</b>\n{new_leads} new leads ({total} total today)")
-    except Exception:
-        pass
-    emit_hud_event("scrape_run", {"city": chosen_city, "new_leads": new_leads, "today_total": total})
-    return {"new_leads": new_leads, "city": chosen_city, "today_total": total}
+    # Advance to the next cell (or the next city once this grid is finished).
+    if grid_idx + 1 >= total_cells:
+        _set_setting("scrape_city_index", str(city_idx + 1))
+        _set_setting("scrape_grid_index", "0")
+    else:
+        _set_setting("scrape_city_index", str(city_idx))
+        _set_setting("scrape_grid_index", str(grid_idx + 1))
+    _set_setting("scrape_last_run", now.isoformat())
+
+    # Per-cell runs are intentionally SILENT on Telegram (only session start + end
+    # notify). The HUD event + log keep live status without the notification spam.
+    emit_hud_event("scrape_run", {"city": city, "grid": grid_idx + 1, "total_cells": total_cells,
+                                  "new_leads": new_leads, "today_total": total})
+    _logger.info("Scraped %s grid %d/%d — %d new %s", city, grid_idx + 1, total_cells, new_leads, category)
+    return {"new_leads": new_leads, "city": city, "grid": grid_idx + 1, "today_total": total}
 
 
 def _maybe_run_scrape_hour(now: datetime) -> None:
@@ -1312,6 +1365,8 @@ def get_scheduler_status() -> Dict[str, Any]:
             "leads_per_hour": int(settings.get("scrape_leads_per_hour", 20) or 20),
             "max_total": int(settings.get("scrape_max_leads_total", 100) or 100),
             "end_time_ist": settings.get("scrape_end_time_ist", "17:00"),
+            "grid_size": int(settings.get("scrape_grid_size", 4) or 4),
+            "grid_radius_km": float(settings.get("scrape_grid_radius_km", 3) or 3),
             "today_total": int(settings.get("scrape_today_total", 0) or 0),
             "last_run": settings.get("scrape_last_run", ""),
         },

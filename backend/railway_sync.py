@@ -210,9 +210,23 @@ def _sync_activities(railway_conn, local_conn, since) -> int:
             )
             if cur.fetchone():
                 continue
-            cur.execute(insert_sql, row)  # no id → local sequence assigns a fresh one
-            added += 1
-    local_conn.commit()
+            # Per-row commit so one orphaned activity (Railway has a lead the local
+            # DB doesn't yet) can't abort the whole sync cycle. FK violations are
+            # skipped with a warning; any other error re-raises.
+            try:
+                cur.execute(insert_sql, row)  # no id → local sequence assigns a fresh one
+                local_conn.commit()
+                added += 1
+            except Exception as exc:
+                local_conn.rollback()
+                msg = str(exc).lower()
+                if "lead_id_fkey" in msg or "foreignkey" in msg or "foreign key" in msg:
+                    logger.warning(
+                        "Skipping orphaned activity (lead %s not in local DB): %s",
+                        row[ix["lead_id"]], exc,
+                    )
+                else:
+                    raise
     return added
 
 

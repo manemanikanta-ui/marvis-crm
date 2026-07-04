@@ -255,56 +255,58 @@ def log_activity_event(
     payload = metadata or {}
     created_at = created_at or _now_iso()
     conn = get_db()
-    if lead_id is None:
+    # try/finally so the pooled connection is ALWAYS returned (and its aborted
+    # transaction rolled back by putconn) even if the INSERT raises — otherwise a
+    # failing insert leaks the connection and eventually exhausts the pool.
+    try:
+        if lead_id is None:
+            cursor = conn.execute(
+                """
+                INSERT INTO system_events (
+                    event_type, channel, content, status, direction, metadata_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    activity_type,
+                    channel,
+                    content[:2000],
+                    status,
+                    direction,
+                    json.dumps(payload, ensure_ascii=False),
+                    created_at,
+                ),
+            )
+            conn.commit()
+            return int(cursor.lastrowid or 0)
         cursor = conn.execute(
             """
-            INSERT INTO system_events (
-                event_type, channel, content, status, direction, metadata_json, created_at
+            INSERT INTO activities (
+                lead_id, type, channel, content, status, scheduled_at, sent_at,
+                response, created_at, direction, metadata_json, campaign_name, classification
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                lead_id,
                 activity_type,
                 channel,
                 content[:2000],
                 status,
+                scheduled_at,
+                sent_at or (created_at if status == "sent" else None),
+                response,
+                created_at,
                 direction,
                 json.dumps(payload, ensure_ascii=False),
-                created_at,
+                campaign_name,
+                classification,
             ),
         )
         conn.commit()
-        event_id = cursor.lastrowid
+        return int(cursor.lastrowid)
+    finally:
         conn.close()
-        return int(event_id or 0)
-    cursor = conn.execute(
-        """
-        INSERT INTO activities (
-            lead_id, type, channel, content, status, scheduled_at, sent_at,
-            response, created_at, direction, metadata_json, campaign_name, classification
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            lead_id,
-            activity_type,
-            channel,
-            content[:2000],
-            status,
-            scheduled_at,
-            sent_at or (created_at if status == "sent" else None),
-            response,
-            created_at,
-            direction,
-            json.dumps(payload, ensure_ascii=False),
-            campaign_name,
-            classification,
-        ),
-    )
-    conn.commit()
-    activity_id = cursor.lastrowid
-    conn.close()
-    return int(activity_id)
 
 
 def log_status_change(

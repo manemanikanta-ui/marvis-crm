@@ -401,9 +401,14 @@ def _import_enriched_leads(file_path: Path, run_started_at: datetime, campaign_n
                 run_started_at.isoformat(),
             ),
         )
+        # Commit the lead BEFORE logging its activity: log_activity_event opens a
+        # SEPARATE pooled connection that cannot see this lead until it is
+        # committed → otherwise an activities.lead_id FK violation on Postgres.
+        new_lead_id = cursor.lastrowid
+        conn.commit()
         imported += 1
         log_activity_event(
-            cursor.lastrowid,
+            new_lead_id,
             "scheduler_job",
             "system",
             f"Imported by scheduler for {campaign_name or 'daily job'}",
@@ -414,7 +419,7 @@ def _import_enriched_leads(file_path: Path, run_started_at: datetime, campaign_n
         )
         new_leads.append(
             {
-                "id": cursor.lastrowid,
+                "id": new_lead_id,
                 "name": name,
                 "phone": phone,
                 "email": email,
@@ -423,7 +428,7 @@ def _import_enriched_leads(file_path: Path, run_started_at: datetime, campaign_n
                 "whatsapp_message": str(row.get("whatsapp_message", "")).strip(),
             }
         )
-        emit_hud_event("new_lead", {"name": name, "category": campaign_name or str(row.get("query", "")).strip(), "lead_id": cursor.lastrowid})
+        emit_hud_event("new_lead", {"name": name, "category": campaign_name or str(row.get("query", "")).strip(), "lead_id": new_lead_id})
 
     conn.commit()
     conn.close()
@@ -979,6 +984,17 @@ def _maybe_tag_no_response(now: datetime):
         _logger.error("no_response tagging error: %s", exc)
 
 
+def _record_reply_outcomes_safe():
+    """Materialise reply_outcomes from the activities table (Phase 0 capture).
+    Runs on the local scheduler after replies land via the 30s Railway sync.
+    gmail_service.py is untouched — this reads the activities table only. Never raises."""
+    try:
+        from outcomes import record_new_outcomes
+        record_new_outcomes()
+    except Exception as exc:
+        _logger.warning("reply-outcomes reconcile error: %s", exc)
+
+
 def _scheduler_loop():
     ensure_schema()
     while not _scheduler_stop.is_set():
@@ -1026,6 +1042,7 @@ def _scheduler_loop():
 
             _maybe_renew_gmail_watch(now)
             _maybe_tag_no_response(now)
+            _record_reply_outcomes_safe()
 
             time.sleep(60)
         except Exception as exc:

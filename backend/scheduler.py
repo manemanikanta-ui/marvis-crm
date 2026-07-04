@@ -995,6 +995,194 @@ def _record_reply_outcomes_safe():
         _logger.warning("reply-outcomes reconcile error: %s", exc)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# HOURLY SCRAPING SESSION — parallel path, independent of the daily jobs above.
+# Uses the inline Google Places scraper (lead_scraper.py); Railway-safe.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _scrape_cities_list(settings) -> List[str]:
+    raw = settings.get("scrape_cities", "") or ""
+    return [c.strip() for c in raw.replace("\n", ",").split(",") if c.strip()]
+
+
+def _is_city_exhausted(city: str, category: str) -> bool:
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT exhausted FROM scrape_history WHERE city = ? AND category = ?",
+            (city, category),
+        ).fetchone()
+        conn.close()
+        return bool(row and row[0])
+    except Exception:
+        return False
+
+
+def _upsert_scrape_history(city: str, category: str, new_leads: int) -> None:
+    now = _now_ist().isoformat()
+    exhausted = (new_leads == 0)
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT id FROM scrape_history WHERE city = ? AND category = ?", (city, category)
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE scrape_history SET last_scraped_at = ?, leads_found = ?, exhausted = ? "
+                "WHERE city = ? AND category = ?",
+                (now, new_leads, exhausted, city, category),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO scrape_history (city, category, last_scraped_at, leads_found, exhausted) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (city, category, now, new_leads, exhausted),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        _logger.warning("scrape_history upsert error: %s", exc)
+
+
+def _end_scrape_session(total: int, reason: str) -> None:
+    _set_setting("scrape_session_active", "false")
+    _logger.info("Scraping session ended (%s) — %s leads today", reason, total)
+    try:
+        from telegram_notify import notify
+        notify(f"✅ <b>Scraping session ended</b>\n{total} leads total today")
+    except Exception:
+        pass
+    emit_hud_event("scrape_session", {"active": False, "today_total": total})
+
+
+def _run_one_scrape(settings, now: datetime) -> Dict[str, Any]:
+    cities = _scrape_cities_list(settings)
+    if not cities:
+        return {"new_leads": 0, "reason": "no_cities"}
+    category = settings.get("scrape_category", "dental clinics") or "dental clinics"
+    per_hour = int(settings.get("scrape_leads_per_hour", 20) or 20)
+    max_total = int(settings.get("scrape_max_leads_total", 100) or 100)
+    total = int(settings.get("scrape_today_total", 0) or 0)
+    idx = int(settings.get("scrape_city_index", 0) or 0)
+
+    # Next non-exhausted city (round-robin); end the session if every city is exhausted.
+    chosen_city = None
+    chosen_idx = idx
+    for step in range(len(cities)):
+        ci = (idx + step) % len(cities)
+        if not _is_city_exhausted(cities[ci], category):
+            chosen_city, chosen_idx = cities[ci], ci
+            break
+    if chosen_city is None:
+        _end_scrape_session(total, reason="all_exhausted")
+        return {"new_leads": 0, "reason": "all_exhausted"}
+
+    want = min(per_hour, max(0, max_total - total))
+    if want <= 0:
+        _end_scrape_session(total, reason="cap")
+        return {"new_leads": 0, "reason": "cap"}
+
+    try:
+        from lead_scraper import scrape_and_import_city
+        res = scrape_and_import_city(category, chosen_city, max_results=want,
+                                     campaign_name=f"{category} — hourly", source="hourly_scrape")
+    except Exception as exc:
+        _logger.error("scrape run error for %s: %s", chosen_city, exc)
+        res = {"found": 0, "new_leads": 0}
+
+    new_leads = int(res.get("new_leads", 0) or 0)
+    total += new_leads
+    _set_setting("scrape_today_total", str(total))
+    _set_setting("scrape_city_index", str((chosen_idx + 1) % len(cities)))
+    _set_setting("scrape_last_run", now.isoformat())
+    _upsert_scrape_history(chosen_city, category, new_leads)
+
+    try:
+        from telegram_notify import notify
+        notify(f"🔍 <b>Scraped {chosen_city}</b>\n{new_leads} new leads ({total} total today)")
+    except Exception:
+        pass
+    emit_hud_event("scrape_run", {"city": chosen_city, "new_leads": new_leads, "today_total": total})
+    return {"new_leads": new_leads, "city": chosen_city, "today_total": total}
+
+
+def _maybe_run_scrape_hour(now: datetime) -> None:
+    """Hourly cadence for the scraping session. Silent no-op when inactive. Runs at
+    most once per clock-hour; ends the session at the stop time or the daily cap."""
+    try:
+        settings = _settings_dict()
+        if not _parse_bool(settings.get("scrape_session_active", "false"), False):
+            return
+
+        today = now.date().isoformat()
+        if settings.get("scrape_today_date", "") != today:      # midnight reset
+            _set_setting("scrape_today_date", today)
+            _set_setting("scrape_today_total", "0")
+            settings["scrape_today_total"] = "0"
+
+        end_time = settings.get("scrape_end_time_ist", "17:00") or "17:00"
+        if now.time() >= _parse_run_time(end_time):
+            _end_scrape_session(int(settings.get("scrape_today_total", 0) or 0), reason="end_time")
+            return
+
+        total = int(settings.get("scrape_today_total", 0) or 0)
+        if total >= int(settings.get("scrape_max_leads_total", 100) or 100):
+            _end_scrape_session(total, reason="cap")
+            return
+
+        hour_key = now.strftime("%Y-%m-%d %H")
+        if settings.get("scrape_last_run_hour", "") == hour_key:
+            return
+        _set_setting("scrape_last_run_hour", hour_key)
+        _run_one_scrape(settings, now)
+    except Exception as exc:
+        _logger.error("scrape-hour error: %s", exc)
+
+
+def start_scrape_session() -> Dict[str, Any]:
+    """POST /api/scrape/start — activate the session, reset the daily counter, ping
+    Telegram, and trigger one scrape run immediately (in a background thread)."""
+    ensure_schema()
+    _set_setting("scrape_session_active", "true")
+    _set_setting("scrape_today_total", "0")
+    _set_setting("scrape_today_date", _now_ist().date().isoformat())
+    settings = _settings_dict()
+    cities = _scrape_cities_list(settings)
+    category = settings.get("scrape_category", "dental clinics")
+    end_time = settings.get("scrape_end_time_ist", "17:00")
+    try:
+        from telegram_notify import notify
+        notify(f"🔍 <b>Scraping session started</b>\n{category} across {len(cities)} cities · hourly till {end_time} IST")
+    except Exception:
+        pass
+    emit_hud_event("scrape_session", {"active": True, "today_total": 0})
+
+    def _kick():
+        try:
+            now = _now_ist()
+            _set_setting("scrape_last_run_hour", now.strftime("%Y-%m-%d %H"))
+            _run_one_scrape(_settings_dict(), now)
+        except Exception as exc:
+            _logger.error("immediate scrape run error: %s", exc)
+
+    threading.Thread(target=_kick, daemon=True, name="marvis-scrape-kick").start()
+    return {"success": True, "session_active": True, "cities": len(cities)}
+
+
+def stop_scrape_session() -> Dict[str, Any]:
+    """POST /api/scrape/stop — deactivate the session and ping Telegram."""
+    ensure_schema()
+    total = int(_settings_dict().get("scrape_today_total", 0) or 0)
+    _set_setting("scrape_session_active", "false")
+    try:
+        from telegram_notify import notify
+        notify(f"⏹ <b>Scraping session stopped</b>\nManually stopped — {total} leads today")
+    except Exception:
+        pass
+    emit_hud_event("scrape_session", {"active": False, "today_total": total})
+    return {"success": True, "session_active": False, "today_total": total}
+
+
 def _scheduler_loop():
     ensure_schema()
     while not _scheduler_stop.is_set():
@@ -1043,6 +1231,7 @@ def _scheduler_loop():
             _maybe_renew_gmail_watch(now)
             _maybe_tag_no_response(now)
             _record_reply_outcomes_safe()
+            _maybe_run_scrape_hour(now)
 
             time.sleep(60)
         except Exception as exc:
@@ -1116,6 +1305,16 @@ def get_scheduler_status() -> Dict[str, Any]:
         "last_result": settings.get("scheduler_last_result", ""),
         "recent_runs": runs,
         "running": _job_running.is_set(),
+        "scrape": {
+            "session_active": _parse_bool(settings.get("scrape_session_active", "false"), False),
+            "category": settings.get("scrape_category", "dental clinics"),
+            "cities": settings.get("scrape_cities", ""),
+            "leads_per_hour": int(settings.get("scrape_leads_per_hour", 20) or 20),
+            "max_total": int(settings.get("scrape_max_leads_total", 100) or 100),
+            "end_time_ist": settings.get("scrape_end_time_ist", "17:00"),
+            "today_total": int(settings.get("scrape_today_total", 0) or 0),
+            "last_run": settings.get("scrape_last_run", ""),
+        },
         "safety": safety,
     }
 

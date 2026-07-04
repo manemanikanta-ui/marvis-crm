@@ -511,6 +511,16 @@ def init_db():
             created_at TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS scrape_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            city TEXT,
+            category TEXT,
+            last_scraped_at TEXT,
+            leads_found INTEGER DEFAULT 0,
+            exhausted BOOLEAN DEFAULT FALSE,
+            UNIQUE(city, category)
+        );
+
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
@@ -547,6 +557,14 @@ def init_db():
         INSERT OR IGNORE INTO settings VALUES ('random_delay_max', '0');
         INSERT OR IGNORE INTO settings VALUES ('office_hours_only', 'true');
         INSERT OR IGNORE INTO settings VALUES ('pause_on_failures', 'true');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_category', 'dental clinics');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_cities', 'Hyderabad,Mumbai,Delhi,Visakhapatnam');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_leads_per_hour', '20');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_max_leads_total', '100');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_end_time_ist', '17:00');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_city_index', '0');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_session_active', 'false');
+        INSERT OR IGNORE INTO settings VALUES ('scrape_today_total', '0');
     """)
     # Commit the table creation BEFORE any ALTER runs. On PostgreSQL a redundant
     # ALTER (column already present from the CREATE above) aborts the transaction;
@@ -1936,6 +1954,57 @@ async def scheduler_config(update: SchedulerConfigUpdate):
 
 
 # ─────────────────────────────────────────────
+# HOURLY SCRAPING SESSION
+# ─────────────────────────────────────────────
+
+@app.get("/api/scrape-history")
+async def scrape_history():
+    def _load():
+        conn = get_db()
+        try:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT id, city, category, last_scraped_at, leads_found, exhausted "
+                "FROM scrape_history ORDER BY city, category"
+            ).fetchall()]
+        except Exception:
+            rows = []
+        conn.close()
+        return rows
+    return await asyncio.to_thread(_load)
+
+
+class ScrapeHistoryReset(BaseModel):
+    city: str
+    category: str
+
+
+@app.post("/api/scrape-history/reset")
+async def scrape_history_reset(req: ScrapeHistoryReset):
+    def _reset():
+        conn = get_db()
+        conn.execute(
+            "UPDATE scrape_history SET exhausted = ? WHERE city = ? AND category = ?",
+            (False, req.city, req.category),
+        )
+        conn.commit()
+        conn.close()
+    await asyncio.to_thread(_reset)
+    return {"success": True, "city": req.city, "category": req.category}
+
+
+@app.post("/api/scrape/start")
+async def scrape_start():
+    from scheduler import start_scrape_session
+    return await asyncio.to_thread(start_scrape_session)
+
+
+@app.post("/api/scrape/stop")
+async def scrape_stop():
+    from scheduler import stop_scrape_session
+    return await asyncio.to_thread(stop_scrape_session)
+
+
+# ─────────────────────────────────────────────
 # WHATSAPP ENDPOINTS
 # ─────────────────────────────────────────────
 
@@ -2697,6 +2766,25 @@ async def startup():
     except Exception:
         pass
     logger.info("startup: completed migration responded_at column")
+
+    # Migration: add place_id column if missing (scraper dedup by Google place_id).
+    logger.info("startup: starting migration place_id column")
+    try:
+        from db import table_columns
+        conn = get_db()
+        existing_cols = table_columns(conn, "leads")
+        conn.close()
+        if "place_id" not in existing_cols:
+            conn = get_db()
+            conn.execute("ALTER TABLE leads ADD COLUMN place_id TEXT")
+            conn.commit()
+            conn.close()
+            print("✅ Migration: place_id column added")
+        else:
+            logger.info("startup: place_id column already exists, skipping")
+    except Exception:
+        pass
+    logger.info("startup: completed migration place_id column")
 
     # One-time migration: re-score legacy leads with the current scoring model
     logger.info("startup: starting migration recompute_all_scores")

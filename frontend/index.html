@@ -846,6 +846,14 @@ body {
   <div class="topbar">
     <div class="page-title" id="page-title">Dashboard</div>
     <div class="topbar-actions">
+      <style>
+        @keyframes marvis-scrape-pulse { 0%{box-shadow:0 0 0 0 rgba(34,211,165,.6)} 70%{box-shadow:0 0 0 6px rgba(34,211,165,0)} 100%{box-shadow:0 0 0 0 rgba(34,211,165,0)} }
+        .scraper-live { background:#22d3a5 !important; animation: marvis-scrape-pulse 1.8s ease-in-out infinite; }
+      </style>
+      <div id="dash-scraper-indicator" onclick="showView('settings')" title="Scraping session status" style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);cursor:pointer;margin-right:6px;">
+        <span id="dash-scraper-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text3);"></span>
+        <span id="dash-scraper-text">Scraper idle</span>
+      </div>
       <button class="btn btn-outline btn-sm" onclick="importLeads()">⬆ Import Leads</button>
       <button class="btn btn-outline btn-sm" onclick="runBatchEmailFinder()">🔍 Find All Emails</button>
       <button class="btn btn-outline btn-sm" onclick="enrichAllLeads()">✨ Enrich All</button>
@@ -1735,6 +1743,52 @@ body {
                 <div class="field-label">Summary</div>
                 <div id="sched-summary">—</div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SCRAPING SESSION — hourly, parallel to the daily scheduler above -->
+        <div class="panel" style="margin-top:16px;">
+          <div class="panel-header">
+            <div class="panel-title">🔍 Scraping Session</div>
+            <div id="scrape-session-badge" style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3);"></div>
+          </div>
+          <div style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div>
+                <div class="field-label">Category</div>
+                <input class="field-value" id="scrape-category" style="width:100%;border:1px solid var(--border2);outline:none;" placeholder="dental clinics" onblur="saveSetting('scrape_category', this.value)">
+              </div>
+              <div>
+                <div class="field-label">Stop at (IST)</div>
+                <input class="field-value" id="scrape-end-time" type="time" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('scrape_end_time_ist', this.value)">
+              </div>
+            </div>
+            <div>
+              <div class="field-label">Cities (one per line or comma-separated)</div>
+              <textarea id="scrape-cities" rows="4" style="width:100%;border:1px solid var(--border2);border-radius:8px;padding:8px;outline:none;background:var(--surface2);color:var(--text);font-family:inherit;" placeholder="Hyderabad&#10;Mumbai&#10;Delhi&#10;Visakhapatnam" onblur="saveSetting('scrape_cities', this.value)"></textarea>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+              <div>
+                <div class="field-label">Leads / hour</div>
+                <input class="field-value" id="scrape-per-hour" type="number" min="1" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('scrape_leads_per_hour', this.value)">
+              </div>
+              <div>
+                <div class="field-label">Max total (today)</div>
+                <input class="field-value" id="scrape-max-total" type="number" min="1" style="width:100%;border:1px solid var(--border2);outline:none;" onblur="saveSetting('scrape_max_leads_total', this.value)">
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-primary btn-sm" id="scrape-start-btn" onclick="startScrapeSession()">Start Scraping Session</button>
+              <button class="btn btn-outline btn-sm" onclick="stopScrapeSession()">Stop Session</button>
+            </div>
+            <div id="scrape-session-status" style="font-size:13px;color:var(--text3);padding:10px 12px;background:var(--surface2);border-radius:8px;">—</div>
+            <div>
+              <div class="field-label" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Scrape History</span>
+                <button class="btn btn-ghost btn-sm" onclick="loadScrapeHistory()" style="font-size:11px;">Refresh</button>
+              </div>
+              <div id="scrape-history-list" style="display:flex;flex-direction:column;gap:2px;margin-top:8px;font-size:13px;"></div>
             </div>
           </div>
         </div>
@@ -3204,6 +3258,8 @@ async function loadSchedulerStatus() {
       banner.style.color = s.running ? 'var(--orange)' : 'var(--green)';
       banner.textContent = s.running ? 'Scheduler is running a job right now' : 'Scheduler ready · next run ' + (s.next_run || '—');
     }
+    if (s.scrape) { populateScrapeConfig(s.scrape); renderScrapeSession(s.scrape); }
+    loadScrapeHistory();
   } catch(e) {
     console.error('loadSchedulerStatus error', e);
   }
@@ -3376,6 +3432,102 @@ async function saveSetting(key, value) {
     body: JSON.stringify({ key, value })
   });
 }
+
+// ─────────────────────────────────────────────
+// SCRAPING SESSION (hourly, configurable)
+// ─────────────────────────────────────────────
+let _scrapeConfigLoaded = false;
+function populateScrapeConfig(sc) {
+  if (_scrapeConfigLoaded) return;   // fill inputs once; don't clobber while editing
+  const set = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v; };
+  set('scrape-category', sc.category || 'dental clinics');
+  set('scrape-cities', (sc.cities || '').replace(/,/g, '\n'));
+  set('scrape-per-hour', sc.leads_per_hour || 20);
+  set('scrape-max-total', sc.max_total || 100);
+  set('scrape-end-time', sc.end_time_ist || '17:00');
+  _scrapeConfigLoaded = true;
+}
+function _agoMin(iso) {
+  try { const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)); return m + 'm ago'; }
+  catch (_) { return ''; }
+}
+function renderScrapeSession(sc) {
+  const active = !!sc.session_active;
+  const badge = document.getElementById('scrape-session-badge');
+  const statusEl = document.getElementById('scrape-session-status');
+  const startBtn = document.getElementById('scrape-start-btn');
+  if (badge) badge.innerHTML = active
+    ? '<span class="scraper-live" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span> Active'
+    : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text3);"></span> Idle';
+  if (statusEl) {
+    const last = sc.last_run ? new Date(sc.last_run).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+    statusEl.innerHTML = active
+      ? `<b style="color:var(--green)">● Active</b> — ${sc.today_total || 0} leads today (max ${sc.max_total || 100}) · last run ${last}`
+      : `<span>○ Idle</span> — ${sc.today_total || 0} leads today · last run ${last}`;
+  }
+  if (startBtn) startBtn.disabled = active;
+  const dot = document.getElementById('dash-scraper-dot');
+  const txt = document.getElementById('dash-scraper-text');
+  if (dot && txt) {
+    if (active) {
+      dot.className = 'scraper-live'; dot.style.background = '';
+      const last = sc.last_run ? _agoMin(sc.last_run) : '';
+      txt.textContent = 'Scraper active' + (last ? ` — last run ${last}` : '');
+    } else {
+      dot.className = ''; dot.style.background = 'var(--text3)';
+      txt.textContent = 'Scraper idle';
+    }
+  }
+}
+async function startScrapeSession() {
+  const btn = document.getElementById('scrape-start-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Starting...'; }
+  try {
+    const res = await fetch(`${API}/scrape/start`, { method: 'POST' }).then(r => r.json());
+    toast(res.success ? `Scraping session started (${res.cities || 0} cities)` : 'Could not start', res.success ? '🔍' : '⚠️');
+  } catch (e) { toast('Start failed', '❌'); }
+  finally { if (btn) btn.textContent = 'Start Scraping Session'; }
+  setTimeout(() => { loadSchedulerStatus(); loadScrapeHistory(); }, 1500);
+}
+async function stopScrapeSession() {
+  try {
+    const res = await fetch(`${API}/scrape/stop`, { method: 'POST' }).then(r => r.json());
+    toast(`Session stopped — ${res.today_total || 0} leads today`, '⏹');
+  } catch (e) { toast('Stop failed', '❌'); }
+  await loadSchedulerStatus();
+}
+async function loadScrapeHistory() {
+  const list = document.getElementById('scrape-history-list');
+  if (!list) return;
+  try {
+    const rows = await fetch(`${API}/scrape-history`).then(r => r.json());
+    if (!rows || !rows.length) { list.innerHTML = '<div style="color:var(--text3);padding:6px 0;">No scrapes yet.</div>'; return; }
+    list.innerHTML = rows.map(r => {
+      const ex = r.exhausted === true || r.exhausted === 1;
+      const badge = ex
+        ? '<span style="color:var(--red)">✗ Exhausted</span> <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px;" onclick="resetScrapeCity(\'' + _escq(r.city) + '\',\'' + _escq(r.category) + '\')">Reset</button>'
+        : '<span style="color:var(--green)">✓ Active</span>';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--border);">'
+        + '<span>' + r.city + ' / ' + r.category + '</span>'
+        + '<span style="display:flex;align-items:center;gap:8px;color:var(--text3);"><span>' + (r.leads_found || 0) + ' new</span> ' + badge + '</span></div>';
+    }).join('');
+  } catch (e) { list.innerHTML = '<div style="color:var(--text3);padding:6px 0;">Could not load history.</div>'; }
+}
+async function resetScrapeCity(city, category) {
+  try {
+    await fetch(`${API}/scrape-history/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, category }) });
+    toast('City reset — will be scraped again', '↻');
+    loadScrapeHistory();
+  } catch (e) { toast('Reset failed', '❌'); }
+}
+async function pollScrapeStatus() {
+  try {
+    const s = await fetch(`${API}/scheduler/status`).then(r => r.json());
+    if (s && s.scrape) renderScrapeSession(s.scrape);
+  } catch (_) {}
+}
+setInterval(pollScrapeStatus, 30000);
+setTimeout(pollScrapeStatus, 1500);
 
 // ─────────────────────────────────────────────
 // LEAD MODAL

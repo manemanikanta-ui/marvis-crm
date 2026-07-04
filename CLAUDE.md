@@ -9,13 +9,15 @@
    pwd
    (Must match this project — if wrong, cd to correct path before any command)
 
-3. Check active Claude model:
+3. Check active Claude model (tiers — actual API IDs live in enrichment.py):
+   Heavy reasoning / architecture → Fable 5
+   Standard tasks → Sonnet
+   Light checks / classify → Haiku
    Never use claude-sonnet-4-20250514 (retired 2026-06-15)
-   Use claude-sonnet-4-6 for standard tasks
-   Use claude-haiku-4-5-20251001 for lightweight tasks
 
-4. Read feedback.md before starting:
-   cat C:\Users\HP\PycharmProjects\PythonProject\feedback.md
+4. Read LESSONS.md before starting (live gotchas only):
+   cat C:\Users\HP\PycharmProjects\PythonProject\LESSONS.md
+   (archived bug history → POSTMORTEMS.md; ports/paths/commands → RUNBOOK.md)
 ## What This Project Is
 MARVIS CRM is the core backend + dashboard of the MARVIS AI SDR operating system
 built by Manikanta Mane for Talktiv AI (Hyderabad-based AI automation startup).
@@ -168,6 +170,7 @@ All secrets in .env (local) and Railway environment variables (production):
 - logs/ folder (runtime logs)
 - __pycache__/ (Python cache)
 - .env file (never read aloud or commit)
+- gmail_service.py (OFF-LIMITS — wire around it via the activities table, never modify)
 
 ## When Making Changes
 1. Backend changes → test locally with: uvicorn main:app --reload

@@ -787,8 +787,14 @@ async def get_leads(
     params = []
 
     if status and status != "all":
-        query += " AND status = ?"
-        params.append(status)
+        # "New" tab = freshly scraped/enriched leads awaiting action, which land
+        # in either 'new' or 'pending_review'. Treat status=new (and the 'pending'
+        # alias) as both so newly-imported leads are visible in the New filter.
+        if status in ("new", "pending"):
+            query += " AND status IN ('new', 'pending_review')"
+        else:
+            query += " AND status = ?"
+            params.append(status)
     if priority:
         query += " AND priority = ?"
         params.append(priority)
@@ -1712,6 +1718,27 @@ async def pause_lead(lead_id: int):
 @app.get("/api/campaign-stats")
 async def campaign_stats():
     return get_campaign_stats()
+
+
+@app.get("/api/reply-outcomes")
+async def reply_outcomes(limit: int = 100, campaign: Optional[str] = None):
+    """Phase 0 capture layer — structured reply outcomes materialised from the
+    activities table by outcomes.record_new_outcomes (local scheduler)."""
+    def _load():
+        from outcomes import ensure_outcomes_schema
+        ensure_outcomes_schema()
+        conn = get_db()
+        query = "SELECT * FROM reply_outcomes"
+        params = []
+        if campaign:
+            query += " WHERE campaign_name = ?"
+            params.append(campaign)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        rows = [dict(r) for r in conn.execute(query, params).fetchall()]
+        conn.close()
+        return rows
+    return await asyncio.to_thread(_load)
 
 
 # ─────────────────────────────────────────────

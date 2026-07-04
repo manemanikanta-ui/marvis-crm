@@ -3231,11 +3231,19 @@ async function runSchedulerNow() {
   btn.textContent = '⏳ Running...';
   try {
     const res = await fetch(`${API}/scheduler/run-now`, { method: 'POST' }).then(r => r.json());
-    if (res.success) {
-      toast('Scheduler job completed', '✅');
-    } else {
-      toast(res.message || 'Scheduler did not start', '⚠️');
-    }
+    const st = res.status || (res.success ? 'success' : 'unknown');
+    const map = {
+      success:         ['Scheduler run complete', '✅'],
+      complete:        ['Scheduler run complete', '✅'],
+      partial_skip:    ['Scheduler ran — scraper unavailable, follow-ups processed', '⚠️'],
+      partial_failure: ['Scheduler failed — check logs', '❌'],
+      failed:          ['Scheduler failed — check logs', '❌'],
+      paused:          ['Scheduler is paused', '⏸'],
+      busy:            ['Scheduler already running', '⏸'],
+      idle:            ['Scheduler ran — nothing to do', 'ℹ️'],
+    };
+    const m = map[st] || [res.message || 'Scheduler run finished', 'ℹ️'];
+    toast(m[0], m[1]);
     await loadSchedulerStatus();
   } catch (e) {
     toast('Scheduler run failed', '❌');

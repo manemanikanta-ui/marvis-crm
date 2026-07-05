@@ -1355,6 +1355,129 @@ def vault_latest(subdir: str = "daily", n: int = 5):
     return vault.latest_notes(subdir, min(n, 20))
 
 
+# ── HUD panel data (GET /api/hud/panel/{id}) ────────────────────────────────
+# Contract (marvis-3.html fetchPanelLive): {"rows":[[k,v,cls?]], "sect"?, "note"?}
+# cls in {good, warn, bad}. Real data for crm/engineering/vault/feedback; the
+# rest return honest "not built yet" rows. NEVER fabricate numbers.
+
+def _hud_panel_crm():
+    conn = get_db()
+    try:
+        def _n(where=""):
+            row = conn.execute(f"SELECT COUNT(*) AS c FROM leads {where}").fetchone()
+            return int(dict(row)["c"]) if row else 0
+        total = _n()
+        pending = _n("WHERE status = 'pending_review'")
+        new = _n("WHERE status = 'new'")
+        contacted = _n("WHERE status = 'contacted'")
+        responded = _n("WHERE status = 'responded'")
+    finally:
+        conn.close()
+    return {
+        "rows": [
+            ["Total leads", str(total)],
+            ["Awaiting approval", str(pending), "warn" if pending else "good"],
+            ["New / queued", str(new)],
+            ["Contacted", str(contacted)],
+            ["Replied", str(responded), "bad" if responded else "good"],
+        ],
+        "sect": "Shortcut",
+        "note": "Full console -> localhost:8003",
+    }
+
+
+def _hud_panel_engineering():
+    try:
+        from scheduler import get_scheduler_status
+        sched = get_scheduler_status()
+        sched_state = "running" if sched.get("enabled") else "stopped"
+        run_time = sched.get("run_time", "")
+    except Exception:
+        sched_state, run_time = "unknown", ""
+    try:
+        man = vault.manifest()
+        nfiles = sum(len(f.get("files", [])) for f in man.get("folders", []))
+    except Exception:
+        nfiles = 0
+    return {
+        "rows": [
+            ["Backend", "healthy", "good"],
+            ["Port", "8003"],
+            ["Scheduler", sched_state, "good" if sched_state == "running" else "warn"],
+            ["Next run", (run_time + " IST") if run_time else "-"],
+            ["Vault notes", str(nfiles), "good"],
+        ],
+        "sect": "Source",
+        "note": "Live from scheduler status + vault.manifest()",
+    }
+
+
+def _hud_panel_vault():
+    try:
+        man = vault.manifest()
+        folders = man.get("folders", [])
+        nfiles = sum(len(f.get("files", [])) for f in folders)
+    except Exception as e:
+        return {"rows": [["Vault", "unavailable", "bad"]], "note": str(e)[:100]}
+    rows = [
+        ["Vault root", "MARVIS_Vault/", "good"],
+        ["Folders", str(len(folders))],
+        ["Notes", str(nfiles)],
+    ]
+    for f in folders:
+        rows.append(["- " + str(f.get("name", "?")), str(len(f.get("files", []))) + " notes"])
+    return {"rows": rows, "sect": "Sync", "note": "Obsidian <-> vault.py, mtime-cached"}
+
+
+def _hud_panel_feedback():
+    rows = []
+    try:
+        daily = vault.latest_notes("daily", 1)
+        rows.append(["Latest daily note", daily[0].get("name", "?")] if daily
+                    else ["Daily notes", "none yet", "warn"])
+    except Exception:
+        rows.append(["Daily notes", "unavailable", "warn"])
+    conn = get_db()
+    try:
+        try:
+            row = conn.execute("SELECT COUNT(*) AS c FROM reply_outcomes").fetchone()
+            rows.append(["Reply outcomes captured", str(int(dict(row)["c"]))])
+        except Exception:
+            rows.append(["Reply outcomes", "table not built yet", "warn"])
+    finally:
+        conn.close()
+    rows.append(["Loop status", "Phase 0 live-test", "warn"])
+    return {"rows": rows, "sect": "Memory layer", "note": "Live from vault daily/ + reply_outcomes"}
+
+
+_HUD_PANEL_BUILDERS = {
+    "crm": _hud_panel_crm,
+    "engineering": _hud_panel_engineering,
+    "vault": _hud_panel_vault,
+    "feedback": _hud_panel_feedback,
+}
+
+_HUD_PANEL_PLACEHOLDERS = {
+    "research": "Research agent runs on Railway (Phase 5) - no local data yet.",
+    "analytics": "Campaign autopsy not wired yet (VERIFY markers pending).",
+    "personalisation": "patterns_injection disabled; no live personalisation metrics yet.",
+    "social": "Social agent not built (gated in AGENTS brief).",
+}
+
+
+@app.get("/api/hud/panel/{panel_id}")
+def hud_panel(panel_id: str):
+    builder = _HUD_PANEL_BUILDERS.get(panel_id)
+    if builder:
+        try:
+            return builder()
+        except Exception as e:
+            logger.warning("hud panel %s failed: %s", panel_id, e)
+            return {"rows": [["status", "panel error", "bad"]], "note": str(e)[:120]}
+    note = _HUD_PANEL_PLACEHOLDERS.get(panel_id, "No live data source for this panel yet.")
+    return {"rows": [["status", "not built yet", "warn"]], "note": note}
+
+
 def _run_approval_outreach(lead_ids: List[int]) -> None:
     """Post-approval outreach pipeline (runs in a FastAPI BackgroundTask).
 

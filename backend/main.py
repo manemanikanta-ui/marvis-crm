@@ -2725,6 +2725,12 @@ async def startup():
     set_hud_loop(asyncio.get_running_loop())
     logger.info("startup: completed set_hud_loop")
 
+    # agent_bus replays Railway-origin agent_events into /ws/hud (local backend
+    # only; no-op on Railway). Additive — old HUD ignores type:"agent_event".
+    from agent_bus import start_railway_replayer
+    start_railway_replayer()
+    logger.info("startup: agent_bus railway replayer started")
+
     logger.info("startup: starting init_db")
     init_db()
     logger.info("startup: completed init_db")

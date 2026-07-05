@@ -37,6 +37,7 @@ from dotenv import load_dotenv
 
 from db import get_db as shared_get_db
 from hud_bus import emit_hud_event, hud_manager, set_hud_loop
+import vault
 
 load_dotenv()
 
@@ -1342,6 +1343,16 @@ def health():
         "scheduler": "running" if scheduler_ok else "stopped",
         "next_run": next_run,
     }
+
+
+@app.get("/api/vault/manifest")
+def vault_manifest():
+    return vault.manifest()
+
+
+@app.get("/api/vault/latest")
+def vault_latest(subdir: str = "daily", n: int = 5):
+    return vault.latest_notes(subdir, min(n, 20))
 
 
 def _run_approval_outreach(lead_ids: List[int]) -> None:

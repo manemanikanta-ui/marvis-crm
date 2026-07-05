@@ -1478,6 +1478,26 @@ def hud_panel(panel_id: str):
     return {"rows": [["status", "not built yet", "warn"]], "note": note}
 
 
+@app.post("/api/_debug/agent-event")
+async def debug_agent_event(request: Request):
+    """Localhost-only standing test hook: fire one agent_event onto /ws/hud so HUD 3
+    agent nodes can be exercised without a live agent. This is the correct way to
+    test emissions — a standalone python shell has no HUD event loop and cannot
+    reach the sockets. Body: {"event","agent","msg"?,"to_agent"?}."""
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(status_code=403, detail="localhost only")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    from agent_bus import hud_event
+    event = str(body.get("event", "dispatch"))
+    agent = str(body.get("agent", "engineering"))
+    hud_event(event, agent, str(body.get("msg", "debug test")), body.get("to_agent"))
+    return {"emitted": True, "event": event, "agent": agent}
+
+
 def _run_approval_outreach(lead_ids: List[int]) -> None:
     """Post-approval outreach pipeline (runs in a FastAPI BackgroundTask).
 

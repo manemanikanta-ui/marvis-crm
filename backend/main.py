@@ -38,6 +38,11 @@ from dotenv import load_dotenv
 from db import get_db as shared_get_db
 from hud_bus import emit_hud_event, hud_manager, set_hud_loop
 import vault
+try:
+    from agent_bus import hud_event as _hud_event
+except Exception:  # agent_bus optional — never break main on import
+    def _hud_event(*a, **k):
+        pass
 
 load_dotenv()
 
@@ -206,13 +211,8 @@ async def proof_portal(code: str, request: Request):
     conn.commit()
     conn.close()
 
-    # Telegram notification on first view (pack still holds the pre-increment count)
-    if pack["view_count"] == 0:
-        try:
-            from telegram_notify import notify
-            notify(f"👁 <b>Proof pack opened</b>\n{pack['business_name']}\nCode: {pack['code']}")
-        except Exception:
-            pass
+    # Proof-pack-opened Telegram alert removed — Telegram is reserved for scheduler
+    # lifecycle + email/WhatsApp replies only.
 
     assets = json.loads(pack["assets_json"] or "{}")
 
@@ -276,17 +276,8 @@ async def proof_regenerate(code: str):
     conn.commit()
     conn.close()
 
-    # Telegram hot signal on 2nd regeneration
-    if new_regen_count >= 2:
-        try:
-            from telegram_notify import notify
-            notify(
-                f"🔥 <b>HOT SIGNAL — Regen limit hit</b>\n"
-                f"{pack['business_name']}\nCode: {pack['code']}\n"
-                f"They regenerated twice — call them now."
-            )
-        except Exception:
-            pass
+    # Regen-limit Telegram hot-signal removed — Telegram is reserved for scheduler
+    # lifecycle + email/WhatsApp replies only.
 
     return JSONResponse({
         "success": True,
@@ -1116,17 +1107,8 @@ async def bulk_enrich_leads(req: BulkIds, background_tasks: BackgroundTasks):
             except Exception as e:
                 print(f"bulk-enrich error for lead {lid}: {e}")
 
-        # ONE consolidated hot-lead alert per bulk run (silent when zero hot leads).
-        if hot > 0:
-            try:
-                from telegram_notify import notify
-                notify(
-                    f"🔥 <b>Bulk Enrichment Complete</b>\n"
-                    f"Enriched: {enriched}\n"
-                    f"Hot leads found: {hot}"
-                )
-            except Exception:
-                pass
+        # Bulk-enrich-complete Telegram alert removed — Telegram is reserved for
+        # scheduler lifecycle + email/WhatsApp replies only.
 
     background_tasks.add_task(run)
     return {"success": True, "message": f"Enriching {len(ids)} leads in background", "count": len(ids)}
@@ -1519,6 +1501,7 @@ def _run_approval_outreach(lead_ids: List[int]) -> None:
     enriched = 0
     sent = 0
     failed = 0
+    _hud_event("dispatch", "personalisation", f"Day-0 batch generating ({len(lead_ids)} lead(s))")
 
     safety = load_safety_settings()
     office_ok = (not safety["office_hours_only"]) or is_office_hours()
@@ -1592,18 +1575,9 @@ def _run_approval_outreach(lead_ids: List[int]) -> None:
             failed += 1
             print(f"approval outreach error for lead {lead_id}: {e}")
 
-    # ONE consolidated Telegram summary for the run (never raises).
-    if enriched or sent or failed:
-        try:
-            from telegram_notify import notify
-            notify(
-                f"✅ <b>Approval run complete</b>\n"
-                f"Enriched: {enriched}\n"
-                f"Emails sent: {sent}\n"
-                f"Failed: {failed}"
-            )
-        except Exception:
-            pass
+    # Approval-run Telegram summary removed — Telegram is reserved for scheduler
+    # lifecycle + email/WhatsApp replies only.
+    _hud_event("complete", "personalisation", f"Day-0 batch: {sent} sent, {failed} failed")
 
 
 @app.post("/api/bulk-approve")
@@ -1611,20 +1585,30 @@ async def bulk_approve(background_tasks: BackgroundTasks):
     """Approve all leads currently in pending_review status, then fire the
     outreach pipeline (enrich fallback + Day-0 send + sequence) in the background."""
     conn = get_db()
-    ids = [r["id"] for r in conn.execute(
-        "SELECT id FROM leads WHERE status='pending_review'"
-    ).fetchall()]
+    rows = conn.execute(
+        "SELECT id, COALESCE(email,'') AS email FROM leads WHERE status='pending_review'"
+    ).fetchall()
+    # Only approve leads that actually have an email — no-email leads have nothing
+    # deliverable and are skipped (surfaced to the UI as a "skipped (no email)" count).
+    ids = [r["id"] for r in rows if str(r["email"]).strip()]
+    skipped_no_email = len([r for r in rows if not str(r["email"]).strip()])
     if ids:
         placeholders = ",".join("?" for _ in ids)
         conn.execute(f"UPDATE leads SET status='approved' WHERE id IN ({placeholders})", ids)
         conn.commit()
     conn.close()
     count = len(ids)
-    log_activity_event(None, "bulk_approve", "system", f"Bulk approved {count} leads", status="logged", direction="system", metadata={"approved": count})
+    log_activity_event(None, "bulk_approve", "system", f"Bulk approved {count} leads ({skipped_no_email} skipped, no email)", status="logged", direction="system", metadata={"approved": count, "skipped_no_email": skipped_no_email})
     emit_hud_event("bulk_approve", {"approved": count})
+    # Bulk approve flips status via raw SQL (bypassing update_lead_status), so emit
+    # the dashboard-refresh signal here too — one event, clients re-fetch /api/stats.
+    emit_hud_event("stats_updated", {"approved": count})
     if ids:
         background_tasks.add_task(_run_approval_outreach, ids)
-    return {"approved": count, "message": f"{count} leads approved — outreach queued"}
+    msg = f"{count} leads approved — outreach queued"
+    if skipped_no_email:
+        msg += f", {skipped_no_email} skipped (no email)"
+    return {"approved": count, "skipped_no_email": skipped_no_email, "message": msg}
 
 
 @app.post("/api/recompute-scores")
@@ -1868,6 +1852,15 @@ async def pending_approvals(limit: int = 100):
 
 @app.post("/api/approve-outreach/{lead_id}")
 async def approve_outreach(lead_id: int, background_tasks: BackgroundTasks):
+    # A lead with no email cannot be approved — there is nothing to send.
+    conn = get_db()
+    row = conn.execute("SELECT COALESCE(email,'') AS email FROM leads WHERE id = ?", (lead_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not str(row["email"]).strip():
+        return {"success": False, "error": "Cannot approve lead without email address"}
+
     result = update_lead_status(
         lead_id,
         "approved",

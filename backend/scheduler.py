@@ -25,6 +25,11 @@ from dotenv import load_dotenv
 
 from db import get_db as shared_get_db
 from hud_bus import emit_hud_event
+try:
+    from agent_bus import hud_event as _hud_event
+except Exception:  # agent_bus optional — never break the scheduler on import
+    def _hud_event(*a, **k):
+        pass
 from crm_core import (
     SKIP_SCHEDULER_STATUSES,
     count_today_activity,
@@ -776,6 +781,7 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
         }
 
     started_at = _now_ist()
+    _hud_event("dispatch", "personalisation", f"outreach cycle started ({len(jobs)} job(s))")
     overall = {
         "jobs_total": len(jobs),
         "jobs_completed": 0,
@@ -899,8 +905,10 @@ def _execute_jobs(jobs: List[Dict[str, Any]], trigger_type: str, include_followu
 
         if status == "success":
             emit_hud_event("scheduler_complete", {"jobs": len(jobs), "leads_found": overall.get("new_leads", 0)})
+            _hud_event("complete", "personalisation", f"cycle complete: {overall.get('new_leads', 0)} leads, {overall.get('emails_sent', 0)} sent")
         elif status in {"failed", "partial_failure"}:
             emit_hud_event("scheduler_failed", {"error": details.get("error") or "Scheduler run failed"})
+            _hud_event("fail", "personalisation", "cycle failed")
 
     return {"success": status == "success", "status": status, "summary": overall, "details": details}
 
@@ -1098,20 +1106,8 @@ def _upsert_scrape_history(city: str, category: str, grid_index: int, new_leads:
 def _end_scrape_session(total: int, reason: str) -> None:
     _set_setting("scrape_session_active", "false")
     _logger.info("Scraping session ended (%s) — %s leads today", reason, total)
-    try:
-        settings = _settings_dict()
-        cities = _scrape_cities_list(settings)
-        category = settings.get("scrape_category", "dental clinics")
-        total_cells = int(settings.get("scrape_grid_size", 4) or 4) ** 2
-        lines = []
-        for c in cities:
-            done = _cells_done_count(c, category)
-            lines.append(f"{c}: {done}/{total_cells} grid cells done" if done else f"{c}: not started")
-        from telegram_notify import notify
-        notify("✅ <b>Scraping session complete</b>\n"
-               f"{total} new leads · {category}\n" + "\n".join(lines))
-    except Exception:
-        pass
+    # Scraping-session-complete Telegram alert removed — Telegram is reserved for
+    # scheduler lifecycle + email/WhatsApp replies only.
     emit_hud_event("scrape_session", {"active": False, "today_total": total})
 
 
@@ -1221,13 +1217,8 @@ def start_scrape_session() -> Dict[str, Any]:
     _set_setting("scrape_today_date", _now_ist().date().isoformat())
     settings = _settings_dict()
     cities = _scrape_cities_list(settings)
-    category = settings.get("scrape_category", "dental clinics")
-    end_time = settings.get("scrape_end_time_ist", "17:00")
-    try:
-        from telegram_notify import notify
-        notify(f"🔍 <b>Scraping session started</b>\n{category} across {len(cities)} cities · hourly till {end_time} IST")
-    except Exception:
-        pass
+    # Scraping-session-started Telegram alert removed — Telegram is reserved for
+    # scheduler lifecycle + email/WhatsApp replies only.
     emit_hud_event("scrape_session", {"active": True, "today_total": 0})
 
     def _kick():
@@ -1247,11 +1238,8 @@ def stop_scrape_session() -> Dict[str, Any]:
     ensure_schema()
     total = int(_settings_dict().get("scrape_today_total", 0) or 0)
     _set_setting("scrape_session_active", "false")
-    try:
-        from telegram_notify import notify
-        notify(f"⏹ <b>Scraping session stopped</b>\nManually stopped — {total} leads today")
-    except Exception:
-        pass
+    # Scraping-session-stopped Telegram alert removed — Telegram is reserved for
+    # scheduler lifecycle + email/WhatsApp replies only.
     emit_hud_event("scrape_session", {"active": False, "today_total": total})
     return {"success": True, "session_active": False, "today_total": total}
 

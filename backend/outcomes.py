@@ -22,6 +22,11 @@ from datetime import datetime
 from db import get_db
 
 logger = logging.getLogger("marvis.outcomes")
+try:
+    from agent_bus import hud_event as _hud_event
+except Exception:  # agent_bus optional — never break outcome recording on import
+    def _hud_event(*a, **k):
+        pass
 
 # Inbound reply activity types written by gmail_service / whatsapp / sync.
 REPLY_TYPES = ("email_reply", "wa_reply", "whatsapp_reply", "reply", "inbound")
@@ -198,6 +203,7 @@ def record_new_outcomes(limit: int = 200) -> dict:
             )
             conn.commit()  # per-row commit: a bad row can't abort the batch (Postgres)
             added += 1
+            _hud_event("complete", "analytics", f"outcome captured · {_sentiment(label)}")
         except Exception as exc:
             try:
                 conn.rollback()

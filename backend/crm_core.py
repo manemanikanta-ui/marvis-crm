@@ -395,6 +395,15 @@ def update_lead_status(
         metadata=metadata,
     )
 
+    # Any real status change (approval, pause, contacted, reply, bulk move, …)
+    # nudges every connected HUD/dashboard client to re-fetch /api/stats so the
+    # KPI numbers stay live. Lazy import + no-op when no HUD loop is running.
+    try:
+        from hud_bus import emit_hud_event
+        emit_hud_event("stats_updated", {"lead_id": lead_id, "status": new_status})
+    except Exception:
+        pass
+
     return {
         "success": True,
         "lead_id": lead_id,

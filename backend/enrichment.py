@@ -276,6 +276,20 @@ def build_outreach_prompt(lead: dict, proof_pack_url=None, context=None) -> str:
         facts.append(f"a {category}")
     fact_hint = "; ".join(facts) if facts else "only what is listed above — invent nothing"
 
+    # Element-1 observation anchor for Email 1 — built ONLY from real lead data,
+    # never fabricated. Priority mirrors the FIX 3 spec: website gap first, then
+    # social-only, then review volume, then city/market, else "invent nothing".
+    if has_no_website:
+        observation_hint = f"{name} doesn't have a website yet"
+    elif is_social_only:
+        observation_hint = f"{name} runs its online presence through social media only"
+    elif reviews:
+        observation_hint = f"{name} has {reviews} Google reviews"
+    elif city:
+        observation_hint = f"{name} operating in the {city} market"
+    else:
+        observation_hint = f"only what is listed above about {name} — invent nothing"
+
     # Proof-pack preview link removed from Email 1: the /proof/{code} URL 404s in
     # outreach because packs aren't on the public Railway DB. The talktivai.com
     # trust signal stays. Re-add the link here once the proof portal is verified.
@@ -324,9 +338,8 @@ HARD RULES (every email)
 - Email body is 5 lines maximum.
 - Include exactly ONE specific, real fact about the lead, woven in naturally
   (choose from: {fact_hint}). Never state a fact not given above.
-- Mention the website exactly once, mid-email, as a low-key verification offer:
-  the bare word talktivai.com (no angle brackets, not a CTA, not in the signature).
-  Only Email 1 carries this mid-email mention; Emails 2 and 3 do not.
+- Do NOT place the website anywhere in the email body. talktivai.com appears only
+  in the signature below — never mid-email, in any of the three emails.
 - End every email with this signature — exactly these three lines, nothing else:
   — Manikanta
   Talktiv AI
@@ -338,10 +351,26 @@ HARD RULES (every email)
 THREE EMAILS
 
 EMAIL 1 — Day 0 (cold outreach), tone = {profile['tone']}:
-- One specific observation about their business using the real fact.
-- One genuine yes/no question about their current process (not rhetorical).
-- The single mid-email talktivai.com verification mention.
-- No ask, no CTA button, no link other than talktivai.com.
+Write EXACTLY three elements, in this order, and nothing else in the body:
+1. One specific observation about their business, built ONLY from the real data
+   above (anchor: {observation_hint}). Never invent a detail they didn't give you.
+2. One genuine question that follows directly from that observation — answerable
+   yes/no or in one short sentence about how they currently handle it. A real
+   question, never rhetorical. NOT "would you be interested", NOT "are you looking
+   to grow your business", NOT anything about a demo.
+3. One concrete outcome for their category, phrased like
+   "{category or 'businesses'} we work with typically <specific result>" — a real,
+   specific result (e.g. bookings recovered, missed enquiries answered), NOT a list
+   of features.
+Then STOP. The signature is the only thing that follows element 3.
+This email must NOT contain: any product feature or spec; any mention of AI,
+automation, or technology; any call to action of any kind (no "click here",
+no "reply", no "let me know", no demo/meeting/call ask); any pricing or plans; and
+never the words "solution", "platform", "tool", "system", or "automate".
+No website and no links in the body (talktivai.com is in the signature only).
+Body is 5 lines maximum — if it runs longer, CUT words, never pad.
+Goal: they read it and think "how did they know that about my business?" — not
+"another sales email". Leave them thinking; ask for nothing.
 
 EMAIL 2 — Day 3 (no-reply follow-up):
 - Very short: at most 2 short body lines, then the signature.
@@ -612,6 +641,13 @@ def enrich_lead_in_db(lead_id: int, context=None, force=False, suppress_individu
 
     lead = dict(lead)
 
+    # Skip leads with no email address — there is nothing deliverable to generate for,
+    # and they can never be approved (see the approval guard in main.py). success+skipped
+    # keys are included so batch/bulk callers count this as a skip, not a failure.
+    if not lead.get("email") or lead.get("email", "").strip() == "":
+        print(f"  Skipping lead {lead_id} — no email address")
+        return {"success": True, "skipped": True, "status": "skipped_no_email", "lead_id": lead_id}
+
     # Skip if already enriched — unless force=True (explicit regenerate).
     if not force and lead.get("whatsapp_message") and lead.get("email_subject"):
         return {"success": True, "skipped": True, "message": "Already enriched"}
@@ -720,23 +756,10 @@ def enrich_lead_in_db(lead_id: int, context=None, force=False, suppress_individu
         metadata={"generated": True, "email_validated": email_valid},
     )
 
-    # Hot-lead flag (score >= HOT_LEAD_SCORE). Returned so batch callers can count
-    # hot leads and send ONE consolidated alert instead of per-lead spam.
+    # Hot-lead flag (score >= HOT_LEAD_SCORE). Returned so batch callers can still
+    # count hot leads. Per-lead Telegram alerts were removed (Telegram is limited to
+    # scheduler lifecycle + email/WhatsApp replies only).
     is_hot = int(lead.get("score") or 0) >= HOT_LEAD_SCORE
-
-    # Immediate per-lead Telegram alert — skipped during batch runs (the batch
-    # sends one summary at the end); single manual enrichment still pings here.
-    if is_hot and not suppress_individual_notify:
-        try:
-            from telegram_notify import notify
-            notify(
-                f"🔥 <b>Hot Lead Enriched</b>\n"
-                f"{lead.get('name', '')} — {lead.get('city', '')}\n"
-                f"Score: {lead.get('score')}\n"
-                f"Category: {lead.get('business_type', '')}"
-            )
-        except Exception:
-            pass
 
     return {
         "success": True,
@@ -794,17 +817,8 @@ def enrich_batch(limit: int = 50, only_missing: bool = True) -> dict:
 
     print(f"\n✅ Done — Enriched: {enriched} | Failed: {failed} | Hot: {hot}")
 
-    # ONE consolidated hot-lead alert per batch (silent when zero hot leads).
-    if hot > 0:
-        try:
-            from telegram_notify import notify
-            notify(
-                f"🔥 <b>Batch Enrichment Complete</b>\n"
-                f"Enriched: {enriched}\n"
-                f"Hot leads found: {hot}"
-            )
-        except Exception:
-            pass
+    # Batch-complete Telegram alert removed — Telegram is reserved for scheduler
+    # lifecycle + email/WhatsApp replies only.
 
     return {"enriched": enriched, "failed": failed,
             "total": len(leads), "skipped": 0, "hot_leads": hot}

@@ -1784,6 +1784,7 @@ async def get_stats():
         "converted": converted,
         "pending_followups": pending_followups,
         "pending_approvals": pending_approvals,
+        "approved": by_status.get('approved', 0),
         "emails_sent_today": emails_sent_today,
         "replies_today": replies_today,
         "new_replies": new_replies,

@@ -902,6 +902,11 @@ body {
           <div class="stat-value" id="stat-approvals">—</div>
           <div class="stat-sub">Waiting review</div>
         </div>
+        <div class="stat-card green dash-stat-card" onclick="dashCardNav('approved')" title="View approved leads awaiting send">
+          <div class="stat-label">Approved</div>
+          <div class="stat-value" id="stat-approved">—</div>
+          <div class="stat-sub">Awaiting send</div>
+        </div>
       </div>
 
       <div class="panel" style="margin-top:16px;">
@@ -2110,6 +2115,7 @@ async function loadDashboard() {
     document.getElementById('stat-converted').textContent = stats.converted;
     document.getElementById('stat-followups').textContent = stats.pending_followups;
     document.getElementById('stat-approvals').textContent = stats.pending_approvals || 0;
+    { const _ap = document.getElementById('stat-approved'); if (_ap) _ap.textContent = stats.approved || 0; }
     document.getElementById('stat-rate').textContent = `${stats.conversion_rate}% rate`;
     document.getElementById('nav-total').textContent = stats.total_leads;
     document.getElementById('nav-followups').textContent = stats.pending_followups;
@@ -2721,6 +2727,8 @@ function statCardNav(which) {
       currentFilter = 'contacted'; syncFilterChips('contacted'); break;
     case 'conversion':                     // Conversion Rate → status=converted
       currentFilter = 'converted'; syncFilterChips('converted'); break;
+    case 'approved':                       // Approved — awaiting send → status=approved
+      currentFilter = 'approved'; syncFilterChips('approved'); break;
   }
   loadLeads();
   const table = document.querySelector('#view-leads .panel');
@@ -5275,6 +5283,7 @@ async function refreshStatsBar() {
     set('stat-converted', s.converted ?? 0);
     set('stat-followups', s.pending_followups ?? 0);
     set('stat-approvals', s.pending_approvals ?? 0);
+    set('stat-approved', s.approved ?? 0);
     set('stat-rate', `${s.conversion_rate ?? 0}% rate`);
     // All-Leads stat cards
     set('ls-total', s.total_leads ?? 0);

@@ -96,6 +96,8 @@ DEFAULT_SETTINGS = {
 _scheduler_lock = threading.Lock()
 _scheduler_thread: Optional[threading.Thread] = None
 _scheduler_stop = threading.Event()
+_drainer_thread: Optional[threading.Thread] = None
+IS_RAILWAY = bool(os.environ.get("RAILWAY_ENVIRONMENT"))  # drainer runs LOCAL-only (one owner of Gmail sending)
 _job_running = threading.Event()
 _logger = logging.getLogger("marvis.scheduler")
 
@@ -1300,8 +1302,122 @@ def _scheduler_loop():
             time.sleep(30)
 
 
+# ── Approved-queue drainer (LOCAL-only) ─────────────────────────────────────
+# Approved leads can strand forever (approved outside office hours, or auto_send
+# off). This drainer sends them during office hours, ≤DRAIN_CAP per tick, and is
+# LOCAL-only so exactly ONE side owns Gmail sending. Double-send is prevented two
+# ways: (1) an ATOMIC claim — flip approved→sending only if still approved, and
+# proceed only when rowcount==1; (2) _approved_outreach_queue already excludes any
+# lead with a 'sent' email activity. Both survive Railway↔local sync lag.
+DRAIN_CAP = 5
+DRAIN_INTERVAL_SECONDS = 120
+
+
+def _release_claim(lead_id: int) -> None:
+    """Revert a 'sending' claim back to 'approved' (send failed / cap hit mid-tick)."""
+    try:
+        conn = get_db()
+        conn.execute("UPDATE leads SET status = 'approved' WHERE id = ? AND status = 'sending'", (lead_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def drain_approved_queue() -> Dict[str, Any]:
+    """One drainer tick. LOCAL-only. Never raises."""
+    if IS_RAILWAY:
+        return {"skipped": "railway"}
+    try:
+        safety = load_safety_settings()
+        if safety.get("office_hours_only") and not is_office_hours():
+            return {"skipped": "outside_office_hours"}
+        cap_day = int(safety.get("max_emails_per_day", 100) or 100)
+        if count_today_activity("email", status="sent") >= cap_day:
+            return {"skipped": "daily_cap"}
+
+        candidates = _approved_outreach_queue(limit=DRAIN_CAP * 4)
+        if not candidates:
+            return {"sent": 0, "failed": 0, "claimed": 0}
+
+        from email_engine import send_email_now, schedule_sequence  # type: ignore
+        auto_sequence = _parse_bool(_settings_dict().get("auto_sequence_enabled", "true"), True)
+
+        _hud_event("dispatch", "personalisation", f"drainer: {len(candidates)} approved queued")
+        sent = failed = claimed = 0
+        for lead in candidates:
+            if sent >= DRAIN_CAP:
+                break
+            lead_id = int(lead["id"])
+            email = (lead.get("email") or "").strip()
+            subject = (lead.get("email_subject") or "").strip()
+            body = (lead.get("email_body") or "").strip()
+            if not (email and subject and body):
+                continue  # guard: valid email + generated message
+
+            # ATOMIC claim: approved -> sending, only if still approved.
+            conn = get_db()
+            cur = conn.execute(
+                "UPDATE leads SET status = 'sending', updated_at = ? WHERE id = ? AND status = 'approved'",
+                (_now_ist().isoformat(), lead_id),
+            )
+            conn.commit()
+            got = (cur.rowcount == 1)
+            conn.close()
+            if not got:
+                continue  # another tick / the auto-send queue already claimed it
+
+            claimed += 1
+            if count_today_activity("email", status="sent") >= cap_day:
+                _release_claim(lead_id)
+                break
+
+            delay = random_delay_seconds()
+            if delay > 0:
+                time.sleep(delay)
+
+            try:
+                result = send_email_now(email, subject, body, lead_id, "drainer", metadata={"source": "drainer"})
+            except Exception as exc:
+                _release_claim(lead_id)
+                failed += 1
+                _logger.warning("drainer send error for lead %s: %s", lead_id, exc)
+                continue
+
+            if result.get("success"):
+                # send_email_now only auto-flips from {new,pending_review,approved};
+                # we're at 'sending', so flip to contacted explicitly.
+                update_lead_status(lead_id, "contacted", source="drainer",
+                                   note="Day-0 sent by approved-queue drainer")
+                sent += 1
+                if auto_sequence:
+                    try:
+                        schedule_sequence(lead_id, email)
+                    except Exception:
+                        pass
+            else:
+                _release_claim(lead_id)
+                failed += 1
+
+        if sent or failed:
+            _hud_event("complete", "personalisation", f"drainer: {sent} sent, {failed} failed")
+        return {"sent": sent, "failed": failed, "claimed": claimed}
+    except Exception as exc:
+        _logger.warning("drainer tick failed: %s", exc)
+        return {"error": str(exc)}
+
+
+def _drainer_loop():
+    while not _scheduler_stop.is_set():
+        try:
+            drain_approved_queue()
+        except Exception as exc:
+            _logger.warning("drainer loop error: %s", exc)
+        _scheduler_stop.wait(DRAIN_INTERVAL_SECONDS)
+
+
 def start_scheduler_service():
-    global _scheduler_thread
+    global _scheduler_thread, _drainer_thread
     ensure_schema()
     with _scheduler_lock:
         if _scheduler_thread and _scheduler_thread.is_alive():
@@ -1309,6 +1425,25 @@ def start_scheduler_service():
         _scheduler_stop.clear()
         _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True, name="marvis-scheduler")
         _scheduler_thread.start()
+
+        # LOCAL-only approved-queue drainer.
+        if not IS_RAILWAY:
+            # Recover leads left mid-claim by a previous crash. Safe: if the send
+            # actually went out, the 'email sent' activity guard in
+            # _approved_outreach_queue keeps the drainer from re-sending; if it
+            # didn't, the lead correctly returns to the queue.
+            try:
+                _c = get_db()
+                _c.execute("UPDATE leads SET status = 'approved' WHERE status = 'sending'")
+                _c.commit()
+                _c.close()
+            except Exception:
+                pass
+            if not (_drainer_thread and _drainer_thread.is_alive()):
+                _drainer_thread = threading.Thread(target=_drainer_loop, daemon=True, name="marvis-drainer")
+                _drainer_thread.start()
+                _logger.info("Approved-queue drainer started (local; every %ss, cap %s/tick)",
+                             DRAIN_INTERVAL_SECONDS, DRAIN_CAP)
 
         # Log when the scheduler will next fire so it's visible at startup.
         try:

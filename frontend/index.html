@@ -865,6 +865,12 @@ body {
 
     <!-- DASHBOARD VIEW -->
     <div id="view-dashboard">
+      <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:12px;">
+        <span id="dash-live-dot" title="Live — auto-refreshes on lead updates" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-right:10px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--text3);"></span>Live
+        </span>
+        <button class="btn btn-outline btn-sm" onclick="loadDashboard()" title="Refresh dashboard numbers">↻ Refresh</button>
+      </div>
       <div class="stats-grid">
         <div class="stat-card blue dash-stat-card" onclick="dashCardNav('total')" title="View all leads">
           <div class="stat-label">Total Leads</div>
@@ -2167,12 +2173,18 @@ async function loadDashboard() {
 }
 
 let pendingApprovalSelection = [];
+let pendingApprovalRows = [];   // last-loaded approval rows (for no-email lookups)
 
 function _getPendingApprovalRows(payload) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload.leads)) return payload.leads;
   if (Array.isArray(payload.items)) return payload.items;
   return [];
+}
+
+// A lead is approvable only if it has a real email address.
+function _leadHasEmail(l) {
+  return !!(l && l.email && String(l.email).trim());
 }
 
 async function loadPendingApprovals() {
@@ -2182,34 +2194,43 @@ async function loadPendingApprovals() {
   pendingApprovalSelection = [];
   try {
     const data = await fetch(`${API}/pending-approvals`).then(r => r.json());
-    const rows = _getPendingApprovalRows(data);
+    let rows = _getPendingApprovalRows(data);
     if (!rows.length) {
+      pendingApprovalRows = [];
       container.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-title">No approvals pending</div><div class="empty-sub">Generated outreach will appear here before sending.</div></div>';
       return;
     }
+    // Leads with an email float to the top; no-email leads sink to the BOTTOM of
+    // the queue (they can't be approved until an email is added).
+    rows = rows.filter(_leadHasEmail).concat(rows.filter(l => !_leadHasEmail(l)));
+    pendingApprovalRows = rows;
     container.innerHTML = rows.map(function(lead) {
       const id = lead.id;
       const name = lead.name || 'Unnamed lead';
       const type = lead.business_type || 'Unknown';
       const status = lead.status || 'pending_review';
       const score = lead.score || 0;
-      const email = lead.email || 'No email';
+      const hasEmail = _leadHasEmail(lead);
+      const email = hasEmail ? lead.email : 'No email';
       const phone = lead.phone || 'No phone';
+      const noEmailBadge = hasEmail ? '' :
+        '<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;background:#f9731622;color:var(--orange);border:1px solid #f9731644;font-family:\'DM Mono\',monospace;">No Email</span>';
       return (
-        '<div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--border);">' +
+        '<div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--border);' + (hasEmail ? '' : 'opacity:0.72;') + '">' +
           '<label style="display:flex;gap:10px;align-items:flex-start;flex:1;cursor:pointer;">' +
             '<input type="checkbox" data-pending-id="' + id + '" onchange="togglePendingSelection(' + id + ', this.checked)" style="margin-top:4px;width:16px;height:16px;accent-color:var(--accent)">' +
             '<div style="flex:1;">' +
               '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
                 '<div style="font-weight:600;color:var(--text);">' + name + '</div>' +
                 '<span class="status-badge">' + status + '</span>' +
+                noEmailBadge +
                 '<span style="font-size:11px;color:var(--text3);font-family:\'DM Mono\',monospace;">Score ' + score + '</span>' +
               '</div>' +
               '<div style="font-size:12px;color:var(--text3);margin-top:4px;">' + type + ' · ' + phone + ' · ' + email + '</div>' +
             '</div>' +
           '</label>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-            '<button class="btn btn-primary btn-sm" onclick="approvePendingLead(' + id + ')">Approve</button>' +
+            '<button class="btn btn-primary btn-sm" onclick="approvePendingLead(' + id + ')"' + (hasEmail ? '' : ' disabled title="Add an email before approving" style="opacity:0.5;cursor:not-allowed;"') + '>Approve</button>' +
             '<button class="btn btn-outline btn-sm" onclick="pausePendingLead(' + id + ')">Pause</button>' +
             '<button class="btn btn-ghost btn-sm" onclick="openLead(' + id + ')">Open</button>' +
           '</div>' +
@@ -2261,11 +2282,19 @@ async function bulkApprovePending() {
     toast('Select one or more leads first', 'ℹ️');
     return;
   }
-  for (const id of pendingApprovalSelection.slice()) {
+  // No-email leads can't be approved — skip them and report the count.
+  const hasEmailById = {};
+  pendingApprovalRows.forEach(l => { hasEmailById[l.id] = _leadHasEmail(l); });
+  const selected = pendingApprovalSelection.slice();
+  const approvable = selected.filter(id => hasEmailById[id] === true);
+  const skipped = selected.filter(id => hasEmailById[id] === false).length;
+  for (const id of approvable) {
     await approvePendingLead(id, false);
   }
   await loadDashboard();
   await loadPendingApprovals();
+  toast(skipped ? `Approved ${approvable.length}, skipped ${skipped} (no email)` : `Approved ${approvable.length}`,
+        skipped ? '⚠️' : '✅');
 }
 
 async function bulkPausePending() {
@@ -2371,7 +2400,9 @@ async function approveAllPending() {
   if (!confirm('Approve ALL leads currently pending review?')) return;
   try {
     const res = await fetch(`${API}/bulk-approve`, { method: 'POST' }).then(r => r.json());
-    toast(`Approved ${res.approved ?? 0} lead(s) — outreach queued`, '✅');
+    const skipped = res.skipped_no_email || 0;
+    toast(skipped ? `Approved ${res.approved ?? 0}, skipped ${skipped} (no email)`
+                  : `Approved ${res.approved ?? 0} lead(s) — outreach queued`, skipped ? '⚠️' : '✅');
     loadLeadsView();
   } catch (e) { toast('Bulk approve failed', '❌'); }
 }
@@ -5226,9 +5257,69 @@ function closeLeadMapModal() {
   if (mapModal) mapModal.classList.remove('open');
 }
 
+// ─────────────────────────────────────────────
+// LIVE HUD SOCKET — one connection, one event.
+// The backend emits {type:'stats_updated'} on every lead status change
+// (approve / pause / contacted / reply / bulk-approve). We react by re-fetching
+// /api/stats and refreshing the dashboard numbers. Reconnects on drop so it
+// survives backend restarts.
+// ─────────────────────────────────────────────
+async function refreshStatsBar() {
+  try {
+    const s = await fetch(`${API}/stats`).then(r => r.json());
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    // Dashboard stat cards
+    set('stat-total', s.total_leads ?? 0);
+    set('stat-hot', s.hot_leads ?? 0);
+    set('stat-contacted', s.contacted ?? 0);
+    set('stat-converted', s.converted ?? 0);
+    set('stat-followups', s.pending_followups ?? 0);
+    set('stat-approvals', s.pending_approvals ?? 0);
+    set('stat-rate', `${s.conversion_rate ?? 0}% rate`);
+    // All-Leads stat cards
+    set('ls-total', s.total_leads ?? 0);
+    set('ls-new', s.new_leads ?? 0);
+    set('ls-hot', s.hot_leads ?? 0);
+    set('ls-approvals', s.pending_approvals ?? 0);
+    set('ls-emails', s.emails_sent_today ?? 0);
+    set('ls-conv', (s.conversion_rate ?? 0) + '%');
+    // Nav badges
+    set('nav-total', s.total_leads ?? 0);
+    set('nav-followups', s.pending_followups ?? 0);
+  } catch (e) {}
+}
+
+let hudSocket = null;
+function connectHudSocket() {
+  try {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    hudSocket = new WebSocket(`${proto}//${window.location.host}/ws/hud`);
+    const dot = () => document.querySelector('#dash-live-dot span');
+    hudSocket.onopen = () => { const d = dot(); if (d) d.style.background = 'var(--green)'; };
+    hudSocket.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg && msg.type === 'stats_updated') {
+        refreshStatsBar();
+        // If the dashboard is on screen, also refresh the approvals queue.
+        const dash = document.getElementById('view-dashboard');
+        if (dash && dash.style.display !== 'none' && typeof loadPendingApprovals === 'function') {
+          loadPendingApprovals();
+        }
+      }
+    };
+    hudSocket.onclose = () => {
+      const d = dot(); if (d) d.style.background = 'var(--text3)';
+      setTimeout(connectHudSocket, 5000);  // auto-reconnect
+    };
+    hudSocket.onerror = () => { try { hudSocket.close(); } catch (e) {} };
+  } catch (e) {}
+}
+
 // Init
 loadDashboard();
 routeFromHash();
+connectHudSocket();
 </script>
 </body>
 </html>

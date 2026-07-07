@@ -98,6 +98,7 @@ def scrape_and_import_city(category: str, city: str, max_results: int = 20,
         return {"found": 0, "new_leads": 0, "skipped": 0, "place_ids": [], "error": str(exc)}
 
     found = new_leads = skipped = 0
+    no_email = 0
     seen = []
     conn = get_db()
     try:
@@ -138,6 +139,11 @@ def scrape_and_import_city(category: str, city: str, max_results: int = 20,
             email, email_source = _find_email(website)
             score = _score(reviews, website, phone, email)
 
+            if not str(email or "").strip():
+                skipped += 1
+                no_email += 1
+                continue
+
             cursor = conn.execute(
                 """
                 INSERT INTO leads (name, business_type, phone, email, email_source, website,
@@ -166,6 +172,8 @@ def scrape_and_import_city(category: str, city: str, max_results: int = 20,
     finally:
         conn.close()
 
+    if no_email:
+        logger.info("Scrape %s/%s: skipped %d leads with no email address", city, category, no_email)
     return {"found": found, "new_leads": new_leads, "skipped": skipped, "place_ids": seen}
 
 
@@ -276,6 +284,7 @@ def scrape_grid_cell(category: str, city: str, lat: float, lng: float,
         return {"found": 0, "new_leads": 0, "skipped": 0}
 
     found = new_leads = skipped = 0
+    no_email = 0
     conn = get_db()
     try:
         for place in places:
@@ -301,6 +310,10 @@ def scrape_grid_cell(category: str, city: str, lat: float, lng: float,
             reviews = det.get("user_ratings_total", place.get("user_ratings_total", 0)) or 0
             email, email_source = _find_email(website)
             score = _score(reviews, website, phone, email)
+            if not str(email or "").strip():
+                skipped += 1
+                no_email += 1
+                continue
             cursor = conn.execute(
                 """
                 INSERT INTO leads (name, business_type, phone, email, email_source, website,
@@ -328,4 +341,6 @@ def scrape_grid_cell(category: str, city: str, lat: float, lng: float,
         logger.warning("grid cell import error for %s (%s,%s): %s", city, lat, lng, exc)
     finally:
         conn.close()
+    if no_email:
+        logger.info("Grid scrape %s (%s,%s): skipped %d leads with no email address", city, lat, lng, no_email)
     return {"found": found, "new_leads": new_leads, "skipped": skipped}

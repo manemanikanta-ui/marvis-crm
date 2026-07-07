@@ -386,6 +386,7 @@ def _import_enriched_leads(file_path: Path, run_started_at: datetime, campaign_n
     conn = get_db()
     imported = 0
     skipped = 0
+    no_email = 0
     new_leads: List[Dict[str, Any]] = []
 
     for _, row in df.iterrows():
@@ -399,6 +400,11 @@ def _import_enriched_leads(file_path: Path, run_started_at: datetime, campaign_n
         ).fetchone()
         if existing:
             skipped += 1
+            continue
+
+        if not str(email or "").strip():
+            skipped += 1
+            no_email += 1
             continue
 
         cursor = conn.execute(
@@ -457,6 +463,8 @@ def _import_enriched_leads(file_path: Path, run_started_at: datetime, campaign_n
         )
         emit_hud_event("new_lead", {"name": name, "category": campaign_name or str(row.get("query", "")).strip(), "lead_id": new_lead_id})
 
+    if no_email:
+        _logger.info("Scrape import: skipped %d leads with no email address", no_email)
     conn.commit()
     conn.close()
     return {"imported": imported, "skipped": skipped, "new_leads": new_leads}

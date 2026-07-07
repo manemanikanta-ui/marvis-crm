@@ -76,6 +76,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Security P1 — API-key gate (deny-by-default on Railway; loopback-exempt locally).
+# Added after CORS so it wraps as the outermost layer and gates WS upgrades too.
+from auth_middleware import APIKeyMiddleware
+app.add_middleware(APIKeyMiddleware)
+
 
 @app.middleware("http")
 async def add_csp_headers(request: Request, call_next):
@@ -1315,6 +1320,10 @@ def health():
         next_run = f"{run_time} IST" if run_time else ""
     except Exception as e:
         print(f"health: scheduler check failed: {e}")
+
+    if os.environ.get("RAILWAY_ENVIRONMENT"):
+        # Public healthcheck: expose only liveness — no config/status metadata.
+        return {"status": "ok" if crm_ok else "degraded", "service": "marvis-crm"}
 
     return {
         "status": "ok" if crm_ok else "degraded",

@@ -3,6 +3,7 @@ MARVIS Email Automation Engine
 Handles: auto-send on import, follow-up sequences, scheduling, logging
 """
 
+import os
 import smtplib
 import sqlite3
 import threading
@@ -294,6 +295,8 @@ class AutoSendEngine:
 
     def _process_due_followups(self):
         """Find and send all due follow-up emails"""
+        if os.environ.get("RAILWAY_ENVIRONMENT"):
+            return  # invariant #8 (defense-in-depth): Railway never sends outbound
         settings = get_settings()
         if not settings.get("email_user") or not settings.get("email_pass"):
             return  # Not configured yet
@@ -357,4 +360,9 @@ class AutoSendEngine:
 auto_engine = AutoSendEngine()
 
 def start_auto_engine():
+    # Invariant #8 (ONE SENDER): outbound Gmail sending is LOCAL-only. Railway must
+    # never run the auto-send engine, regardless of the auto_send_enabled toggle.
+    if os.environ.get("RAILWAY_ENVIRONMENT"):
+        print("Auto-send engine: SKIPPED on Railway (sending is LOCAL-only per invariant #8).")
+        return
     auto_engine.start()

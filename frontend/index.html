@@ -2054,6 +2054,25 @@ function apiHeaders() {
     'X-API-Key': window.__MARVIS_KEY__ || ''
   };
 }
+// Security P1: guarantee EVERY same-origin /api request carries the key — covers
+// all GET calls that don't pass an explicit headers object. Same-origin /api only;
+// never attaches the key to external URLs. Overrides window.fetch once.
+(function () {
+  const _origFetch = window.fetch.bind(window);
+  const apiBase = window.location.origin + '/api';
+  window.fetch = function (input, init) {
+    try {
+      const url = (typeof input === 'string') ? input : (input && input.url) || '';
+      if (url.indexOf(apiBase) === 0 || url.indexOf('/api/') === 0 || url === '/api') {
+        init = init || {};
+        const h = Object.assign({}, init.headers || {});
+        if (!h['X-API-Key']) h['X-API-Key'] = window.__MARVIS_KEY__ || '';
+        init.headers = h;
+      }
+    } catch (e) { /* never break fetch */ }
+    return _origFetch(input, init);
+  };
+})();
 let currentLeadId = null;
 let currentFilter = 'all';
 let searchQuery = '';

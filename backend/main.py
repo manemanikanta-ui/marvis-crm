@@ -112,7 +112,23 @@ async def dashboard():
     ]
     for path in candidates:
         if os.path.exists(path):
-            return FileResponse(path)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    html = f.read()
+                # Inject MARVIS_API_KEY server-side so the dashboard's fetches can
+                # send X-API-Key. Value comes from env, never hardcoded in the file.
+                # Safe: on Railway the "/" route is NOT exempt, so the middleware
+                # blocks it (401) and the key is never served publicly — only
+                # loopback (local) clients ever receive this page + key.
+                key = os.environ.get("MARVIS_API_KEY", "")
+                inject = "<script>window.__MARVIS_KEY__ = " + json.dumps(key) + ";</script>"
+                if "<head>" in html:
+                    html = html.replace("<head>", "<head>\n" + inject, 1)
+                else:
+                    html = inject + html
+                return HTMLResponse(html)
+            except Exception:
+                return FileResponse(path)
     return JSONResponse(
         {"error": "Frontend index.html not found", "checked": candidates},
         status_code=404,

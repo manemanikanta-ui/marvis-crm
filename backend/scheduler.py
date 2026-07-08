@@ -1428,14 +1428,18 @@ def start_scheduler_service():
     global _scheduler_thread, _drainer_thread
     ensure_schema()
     with _scheduler_lock:
-        if _scheduler_thread and _scheduler_thread.is_alive():
-            return {"running": True}
         _scheduler_stop.clear()
-        _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True, name="marvis-scheduler")
-        _scheduler_thread.start()
 
-        # LOCAL-only approved-queue drainer.
-        if not IS_RAILWAY:
+        # Scheduler thread: start ONLY if not already alive.
+        if not (_scheduler_thread and _scheduler_thread.is_alive()):
+            _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True, name="marvis-scheduler")
+            _scheduler_thread.start()
+
+        # LOCAL-only approved-queue drainer — INDEPENDENT of the scheduler thread.
+        # It starts whenever it isn't already running (and we're not on Railway),
+        # EVEN IF the scheduler thread was already alive. The old code returned early
+        # on "scheduler already alive" and skipped this entirely.
+        if not IS_RAILWAY and not (_drainer_thread and _drainer_thread.is_alive()):
             # Recover leads left mid-claim by a previous crash. Safe: if the send
             # actually went out, the 'email sent' activity guard in
             # _approved_outreach_queue keeps the drainer from re-sending; if it
@@ -1447,11 +1451,10 @@ def start_scheduler_service():
                 _c.close()
             except Exception:
                 pass
-            if not (_drainer_thread and _drainer_thread.is_alive()):
-                _drainer_thread = threading.Thread(target=_drainer_loop, daemon=True, name="marvis-drainer")
-                _drainer_thread.start()
-                _logger.info("Approved-queue drainer started (local; every %ss, cap %s/tick)",
-                             DRAIN_INTERVAL_SECONDS, DRAIN_CAP)
+            _drainer_thread = threading.Thread(target=_drainer_loop, daemon=True, name="marvis-drainer")
+            _drainer_thread.start()
+            _logger.info("Approved-queue drainer started (local; every %ss, cap %s/tick)",
+                         DRAIN_INTERVAL_SECONDS, DRAIN_CAP)
 
         # Log when the scheduler will next fire so it's visible at startup.
         try:

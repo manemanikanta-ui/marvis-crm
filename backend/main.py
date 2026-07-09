@@ -1733,9 +1733,13 @@ async def get_stats():
     conn = get_db()
 
     total = conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
-    by_status = dict(conn.execute(
+    # NOTE: build the dict by positional index, NOT dict(fetchall()). On Postgres
+    # rows are RowProxy (a Mapping) whose iteration yields column NAMES, so
+    # dict([row, ...]) collapses to {'status': 'count'} and every count is lost.
+    # row[0]/row[1] read values on both sqlite3.Row and RowProxy.
+    by_status = {row[0]: row[1] for row in conn.execute(
         "SELECT status, COUNT(*) FROM leads GROUP BY status"
-    ).fetchall())
+    ).fetchall()}
     hot_leads = conn.execute(
         "SELECT COUNT(*) FROM leads WHERE score >= 75 AND (COALESCE(email,'') != '' OR COALESCE(phone,'') != '')"
     ).fetchone()[0]
@@ -1757,9 +1761,9 @@ async def get_stats():
     recent_leads = [dict(r) for r in conn.execute(
         "SELECT name, business_type, score, status, created_at FROM leads ORDER BY created_at DESC LIMIT 5"
     ).fetchall()]
-    by_type = dict(conn.execute(
+    by_type = {row[0]: row[1] for row in conn.execute(
         "SELECT business_type, COUNT(*) FROM leads GROUP BY business_type ORDER BY COUNT(*) DESC LIMIT 6"
-    ).fetchall())
+    ).fetchall()}
     pending_approvals = conn.execute(
         "SELECT COUNT(*) FROM leads WHERE status IN ('pending_review', 'new') AND (COALESCE(whatsapp_message,'') != '' OR COALESCE(email_subject,'') != '' OR COALESCE(email_body,'') != '')"
     ).fetchone()[0]

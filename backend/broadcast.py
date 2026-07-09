@@ -171,11 +171,13 @@ def get_broadcast_stats() -> dict:
     """).fetchone()[0]
 
     # By business type
-    by_type = dict(conn.execute("""
+    # Positional index, not dict(fetchall()): Postgres RowProxy iterates as column
+    # NAMES, so dict([row, ...]) would collapse to {'business_type': 'count'}.
+    by_type = {row[0]: row[1] for row in conn.execute("""
         SELECT business_type, COUNT(*) FROM leads
         WHERE email != '' AND email IS NOT NULL AND status = 'new'
         GROUP BY business_type ORDER BY COUNT(*) DESC
-    """).fetchall())
+    """).fetchall()}
 
     conn.close()
     return {

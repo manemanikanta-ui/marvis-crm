@@ -71,27 +71,56 @@ _atexit.register(close_pg_pool)
 
 
 class RowProxy(Mapping):
+    """Postgres row that mirrors sqlite3.Row so identical code works on both
+    backends. The subtlety that makes dict(cursor.fetchall()) behave the same:
+
+      * __iter__ yields VALUES (like sqlite3.Row), so dict([row, row, ...]) over
+        a 2-column query builds {value0: value1} -- e.g.
+        {'approved': 19, 'contacted': 57, ...}.
+      * keys() still returns COLUMN NAMES, so dict(single_row) and {**row} take
+        dict()'s mapping path (it calls .keys()) and build {column: value}.
+
+    Getting BOTH right is what makes dict(row) and dict(fetchall()) agree with
+    SQLite. The old __iter__ yielded column names, so dict(fetchall()) collapsed
+    to {'status': 'count'} on Postgres. Membership and positional iteration now
+    follow the values, matching sqlite3.Row.
+    """
+
     def __init__(self, columns: Sequence[str], values: Sequence[Any]):
         self._columns = list(columns)
         self._values = list(values)
         self._data = dict(zip(self._columns, self._values))
 
     def __getitem__(self, key: Any) -> Any:
-        if isinstance(key, int):
+        if isinstance(key, (int, slice)):
             return self._values[key]
         return self._data[key]
 
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._columns)
+    def __iter__(self) -> Iterator[Any]:
+        # Values, not column names -- see class docstring. This is the fix.
+        return iter(self._values)
 
     def __len__(self) -> int:
-        return len(self._columns)
+        return len(self._values)
 
-    def __repr__(self) -> str:
-        return f"RowProxy({self._data!r})"
+    def __contains__(self, item: Any) -> bool:
+        # Follow iteration (values), matching sqlite3.Row.
+        return item in self._values
+
+    def keys(self) -> List[str]:
+        return list(self._columns)
+
+    def values(self) -> List[Any]:
+        return list(self._values)
+
+    def items(self) -> List[Tuple[str, Any]]:
+        return list(zip(self._columns, self._values))
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, default)
+
+    def __repr__(self) -> str:
+        return f"RowProxy({self._data!r})"
 
 
 class ResultProxy:

@@ -3049,8 +3049,6 @@ async def startup():
     from scheduler import start_scheduler_service
     start_scheduler_service()
     logger.info("startup: completed start_scheduler_service")
-    logger.info("startup: active threads after scheduler start: %s",
-                [t.name for t in threading.enumerate()])
 
     from railway_sync import start_sync_service
     start_sync_service()

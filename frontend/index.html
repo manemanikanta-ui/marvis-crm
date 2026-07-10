@@ -1854,7 +1854,7 @@ body {
         </div>
         <div>
           <div class="field-label">Email *</div>
-          <input id="add-email" type="email" class="search-input" style="width:100%;" placeholder="name@example.com">
+          <input id="add-email" type="email" required class="search-input" style="width:100%;" placeholder="name@example.com" oninput="this.style.borderColor=''">
         </div>
         <div>
           <div class="field-label">Website</div>
@@ -4308,6 +4308,7 @@ function openAddLead() {
   const src = document.getElementById('add-source'); if (src) src.value = 'manual';
   const st = document.getElementById('add-status'); if (st) st.value = 'new';
   const err = document.getElementById('add-lead-error'); if (err) { err.style.display = 'none'; err.textContent = ''; }
+  const em = document.getElementById('add-email'); if (em) em.style.borderColor = '';
   document.getElementById('add-lead-modal').classList.add('open');
 }
 
@@ -4322,7 +4323,12 @@ async function createLead() {
   const name = document.getElementById('add-name').value.trim();
   const email = document.getElementById('add-email').value.trim();
   if (!name) { showErr('Business name is required'); return; }
-  if (!email) { showErr('Email is required (for email sequence testing)'); return; }
+  if (!email) {
+    const emailEl = document.getElementById('add-email');
+    if (emailEl) emailEl.style.borderColor = 'var(--red)';
+    toast('Email address is required to add a lead', '⚠️');
+    return;
+  }
 
   const payload = {
     name,

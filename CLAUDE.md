@@ -3,7 +3,7 @@
 ## Stack & run
 - Python 3 / FastAPI / SQLAlchemy · SQLite local, Postgres on Railway (`db.py` bridges both).
 - Run (Electron-owned): quit Electron fully → taskkill stale python → relaunch (main.js owns uvicorn).
-- Run (manual): `python -m uvicorn main:app --host 127.0.0.1 --port 8003` (NO --reload). 127.0.0.1 ONLY — 0.0.0.0 trips fail-closed auth.
+- Run (manual): `python -m uvicorn main:app --host 127.0.0.1 --port 8003` (NO --reload; 127.0.0.1 only — rationale in root CLAUDE.md).
 - Frontend: refresh `frontend/index.html` (no build step).
 
 ## Map

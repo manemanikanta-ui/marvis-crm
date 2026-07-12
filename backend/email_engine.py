@@ -307,8 +307,13 @@ class AutoSendEngine:
 
         conn = get_db()
         now = datetime.now().isoformat()
+        # DNC suppression (WS-A): never auto-send to a do-not-contact lead.
+        # EXISTS keeps it NULL-safe vs NOT IN if the column is briefly absent.
         due = conn.execute(
-            "SELECT * FROM follow_ups WHERE status IN ('pending', 'ready') AND scheduled_at <= ? AND channel = 'email'",
+            "SELECT * FROM follow_ups f WHERE f.status IN ('pending', 'ready') "
+            "AND f.scheduled_at <= ? AND f.channel = 'email' "
+            "AND EXISTS (SELECT 1 FROM leads l WHERE l.id = f.lead_id "
+            "AND COALESCE(l.do_not_contact, 0) = 0)",
             (now,)
         ).fetchall()
         conn.close()

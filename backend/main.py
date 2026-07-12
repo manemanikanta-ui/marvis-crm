@@ -1940,6 +1940,55 @@ async def reply_outcomes(limit: int = 100, campaign: Optional[str] = None):
     return await asyncio.to_thread(_load)
 
 
+@app.get("/api/reply-drafts")
+async def reply_drafts(limit: int = 100, status: Optional[str] = None):
+    """WS-A queue — drafted replies awaiting human approval. Read-only.
+    Default returns the actionable rows (drafted + needs_you); pass ?status= to
+    filter. There is NO send here; approval is a separate endpoint, send is a
+    later task."""
+    def _load():
+        from reply_drafter import ensure_reply_drafts_schema
+        ensure_reply_drafts_schema()
+        conn = get_db()
+        query = "SELECT * FROM reply_drafts"
+        params = []
+        if status:
+            query += " WHERE status = ?"
+            params.append(status)
+        else:
+            query += " WHERE status IN ('reply_drafted', 'needs_you')"
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        rows = [dict(r) for r in conn.execute(query, params).fetchall()]
+        conn.close()
+        return rows
+    return await asyncio.to_thread(_load)
+
+
+@app.post("/api/reply-drafts/{draft_id}/approve")
+async def approve_reply_draft(draft_id: int):
+    """Approve a queued draft. Atomic claim (mirrors the drainer): flips
+    reply_drafted → reply_approved only if still drafted. This does NOT send —
+    it marks the draft ready for a future, separate send task."""
+    def _approve():
+        from reply_drafter import ensure_reply_drafts_schema
+        ensure_reply_drafts_schema()
+        conn = get_db()
+        cur = conn.execute(
+            "UPDATE reply_drafts SET status = 'reply_approved', approved_at = ? "
+            "WHERE id = ? AND status = 'reply_drafted'",
+            (datetime.now().isoformat(), draft_id),
+        )
+        conn.commit()
+        claimed = (cur.rowcount == 1)
+        conn.close()
+        return claimed
+    claimed = await asyncio.to_thread(_approve)
+    if not claimed:
+        return {"success": False, "error": "Draft not found or not in 'reply_drafted' state"}
+    return {"success": True, "status": "reply_approved", "sent": False}
+
+
 # ─────────────────────────────────────────────
 # ANALYTICS — activity logs
 # Discriminator in this DB is `channel` ('email'/'whatsapp') + `status`,
@@ -2976,6 +3025,38 @@ async def startup():
     except Exception:
         pass
     logger.info("startup: completed migration place_id column")
+
+    # Migration: do_not_contact columns (WS-A reply-drafter — DECLINED replies flag
+    # the lead; drainer/follow-ups suppress DNC leads). Runs at every boot on BOTH
+    # local (SQLite) and Railway (Postgres) → schema parity per MARVIS_CRM/CLAUDE.md.
+    # NOT added via ensure_crm_schema(): that short-circuits on schema_verified.
+    logger.info("startup: starting migration do_not_contact columns")
+    try:
+        from db import table_columns
+        _dnc_cols = {
+            "do_not_contact": "INTEGER DEFAULT 0",
+            "do_not_contact_at": "TEXT",
+            "do_not_contact_reason": "TEXT DEFAULT ''",
+        }
+        conn = get_db()
+        existing_cols = table_columns(conn, "leads")
+        conn.close()
+        for _col, _ddl in _dnc_cols.items():
+            if _col not in existing_cols:
+                conn = get_db()
+                try:
+                    conn.execute(f"ALTER TABLE leads ADD COLUMN {_col} {_ddl}")
+                    conn.commit()
+                    print(f"✅ Migration: {_col} column added")
+                except Exception:
+                    conn.rollback()
+                finally:
+                    conn.close()
+            else:
+                logger.info("startup: %s column already exists, skipping", _col)
+    except Exception:
+        pass
+    logger.info("startup: completed migration do_not_contact columns")
 
     # Migration: scrape_history grid_index column + relax the old UNIQUE(city,category)
     # so grid cells per city+category are tracked independently.

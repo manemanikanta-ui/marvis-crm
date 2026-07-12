@@ -952,6 +952,21 @@ body {
           </div>
         </div>
 
+        <div class="panel" id="reply-drafts-panel">
+          <div class="panel-header">
+            <div class="panel-title">✍️ Drafted Replies <span id="reply-drafts-count" style="color:var(--text3);font-size:12px;">(0)</span></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-ghost btn-sm" onclick="loadReplyDrafts()">Refresh</button>
+            </div>
+          </div>
+          <div style="padding:0 20px 20px;color:var(--text3);font-size:12px;">
+            Auto-classified replies awaiting your approval. Approving marks the draft ready — it does NOT send (send is a separate step).
+          </div>
+          <div id="reply-drafts-list" style="padding:0 20px 20px;">
+            <div class="loading"><div class="spinner"></div>Loading drafts...</div>
+          </div>
+        </div>
+
         <div class="panel side-panel">
           <div class="panel-header">
             <div class="panel-title">📋 Recent Activity</div>
@@ -2159,6 +2174,7 @@ async function loadDashboard() {
         <div class="empty-sub">Click "Import Leads" to load your scraped data</div>
       </div>`;
       loadPendingApprovals();
+      loadReplyDrafts();
       return;
     }
 
@@ -2195,6 +2211,7 @@ async function loadDashboard() {
     }
 
     loadPendingApprovals();
+    loadReplyDrafts();
 
   } catch(e) {
     console.error(e);
@@ -2273,6 +2290,68 @@ async function loadPendingApprovals() {
   } catch (e) {
     container.innerHTML = '<div class="empty-state"><div class="empty-title">Error loading approvals</div><div class="empty-sub">Check the API connection and refresh the dashboard.</div></div>';
   }
+}
+
+// WS-A: drafted-reply queue. Read-only list + approve (status flip only, NO send).
+const REPLY_DRAFT_TAGS = { 'INTERESTED': '🟢', 'NOT-NOW': '🟡', 'DECLINED': '🔴', 'NEEDS-YOU': '🔵', 'AUTO-OOO': '🟠' };
+function _esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+async function loadReplyDrafts() {
+  const container = document.getElementById('reply-drafts-list');
+  if (!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading drafts...</div>';
+  try {
+    const rows = await fetch(`${API}/reply-drafts`).then(r => r.json());
+    const countEl = document.getElementById('reply-drafts-count');
+    if (countEl) countEl.textContent = '(' + (rows.length || 0) + ')';
+    if (!rows.length) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No drafted replies</div><div class="empty-sub">Classified replies awaiting approval will appear here.</div></div>';
+      return;
+    }
+    container.innerHTML = rows.map(function(d) {
+      const route = d.route || d.category || '—';
+      const tag = REPLY_DRAFT_TAGS[route] || '•';
+      const conf = Math.round((d.confidence || 0) * 100);
+      const isDraft = d.status === 'reply_drafted';
+      const draftBlock = (d.draft_body || '').trim()
+        ? '<div style="font-size:12px;color:var(--text);margin-top:8px;padding:10px;background:var(--bg2,#1113);border:1px solid var(--border);border-radius:6px;"><div style="color:var(--text3);font-size:11px;margin-bottom:4px;">DRAFT · ' + _esc(d.draft_subject) + '</div>' + _esc(d.draft_body) + '</div>'
+        : '<div style="font-size:12px;color:var(--text3);margin-top:8px;font-style:italic;">No draft — needs manual handling.</div>';
+      const approveBtn = isDraft
+        ? '<button class="btn btn-primary btn-sm" onclick="approveReplyDraft(' + d.id + ')">Approve</button>'
+        : '<span style="font-size:11px;color:var(--text3);font-family:\'DM Mono\',monospace;">' + _esc(d.status) + '</span>';
+      return (
+        '<div style="padding:14px 0;border-bottom:1px solid var(--border);">' +
+          '<div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between;">' +
+            '<div style="flex:1;">' +
+              '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+                '<span style="font-weight:600;color:var(--text);">' + tag + ' ' + _esc(route) + '</span>' +
+                '<span style="font-size:11px;color:var(--text3);font-family:\'DM Mono\',monospace;">' + conf + '% · lead ' + _esc(d.lead_id) + '</span>' +
+              '</div>' +
+              '<div style="font-size:12px;color:var(--text3);margin-top:4px;">↩ ' + _esc(d.reply_excerpt) + '</div>' +
+              draftBlock +
+            '</div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + approveBtn + '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-title">Error loading drafts</div><div class="empty-sub">Check the API connection and refresh.</div></div>';
+  }
+}
+async function approveReplyDraft(id) {
+  try {
+    const res = await fetch(`${API}/reply-drafts/${id}/approve`, { method: 'POST' }).then(r => r.json());
+    if (res.success) {
+      toast('Draft approved (not sent)', '✅');
+    } else {
+      toast(res.error || 'Could not approve draft', '⚠️');
+    }
+  } catch (e) {
+    toast('Error approving draft', '⚠️');
+  }
+  await loadReplyDrafts();
 }
 
 function togglePendingSelection(id, checked) {

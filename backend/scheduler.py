@@ -479,6 +479,7 @@ def _approved_outreach_queue(limit: int = 100) -> List[Dict[str, Any]]:
             SELECT *
             FROM leads
             WHERE status = 'approved'
+              AND COALESCE(do_not_contact, 0) = 0
               AND COALESCE(email, '') != ''
               AND (
                 COALESCE(email_subject, '') != ''
@@ -501,6 +502,21 @@ def _approved_outreach_queue(limit: int = 100) -> List[Dict[str, Any]]:
     ]
     conn.close()
     return rows
+
+
+def _lead_is_dnc(lead_id: int) -> bool:
+    """DB-backed do-not-contact check. Robust regardless of how the caller's lead
+    dict was built. Fails OPEN=False only on error so a lookup glitch never blocks
+    legitimate sends; the SQL eligible-set filters are the primary guard."""
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT COALESCE(do_not_contact, 0) FROM leads WHERE id = ?", (lead_id,)
+        ).fetchone()
+        conn.close()
+        return bool(row and int(row[0]) == 1)
+    except Exception:
+        return False
 
 
 def _send_initial_emails(new_leads: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -529,6 +545,12 @@ def _send_initial_emails(new_leads: List[Dict[str, Any]]) -> Dict[str, Any]:
         lead_status = str(lead.get("status") or "")
         if lead_status != "approved":
             results.append({"lead_id": lead_id, "status": "skipped", "reason": f"status_{lead_status or 'unknown'}"})
+            continue
+
+        # DNC guard: no send path may email a do-not-contact lead, even one freshly
+        # imported (a toggle is not a guard — invariant #8 principle).
+        if _lead_is_dnc(lead_id):
+            results.append({"lead_id": lead_id, "status": "skipped", "reason": "do_not_contact"})
             continue
 
         email = lead.get("email", "")
@@ -610,6 +632,7 @@ def _process_due_followups() -> Dict[str, Any]:
         FROM follow_ups f
         JOIN leads l ON l.id = f.lead_id
         WHERE f.status IN ('pending', 'ready') AND f.scheduled_at <= ?
+          AND COALESCE(l.do_not_contact, 0) = 0
         ORDER BY scheduled_at ASC
         """,
         (now,),
@@ -1033,6 +1056,18 @@ def _record_reply_outcomes_safe():
         _logger.warning("reply-outcomes reconcile error: %s", exc)
 
 
+def _draft_pending_replies_safe():
+    """WS-A: classify captured replies + queue drafted replies for approval.
+    LOCAL-only (reply_drafter guards on IS_RAILWAY). NO SEND — drafts sit in
+    reply_drafts awaiting dashboard approval. Runs right after outcomes capture
+    so reply_outcomes rows already exist. Never raises."""
+    try:
+        from reply_drafter import draft_pending_replies
+        draft_pending_replies()
+    except Exception as exc:
+        _logger.warning("reply-drafter error: %s", exc)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HOURLY SCRAPING SESSION — parallel path, independent of the daily jobs above.
 # Uses the inline Google Places scraper (lead_scraper.py); Railway-safe.
@@ -1302,6 +1337,7 @@ def _scheduler_loop():
             _maybe_renew_gmail_watch(now)
             _maybe_tag_no_response(now)
             _record_reply_outcomes_safe()
+            _draft_pending_replies_safe()
             _maybe_run_scrape_hour(now)
 
             time.sleep(60)
